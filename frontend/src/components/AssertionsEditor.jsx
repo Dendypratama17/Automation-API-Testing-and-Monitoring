@@ -4,6 +4,7 @@ const ASSERTION_TYPES = [
   { value: 'status_code', label: 'Status Code' },
   { value: 'response_time', label: 'Response Time' },
   { value: 'field_exists', label: 'Field Exists' },
+  { value: 'field_not_null', label: 'Field Not Null' },
   { value: 'field_equals', label: 'Field Equals' },
   { value: 'field_contains', label: 'Field Contains' },
   { value: 'field_matches', label: 'Field Matches (Regex)' },
@@ -60,6 +61,9 @@ export function assertionRowsToArray(rows) {
       case 'field_exists':
         if (r.path.trim()) out.push({ type: 'field_exists', path: r.path.trim(), ...enabledFlag });
         break;
+      case 'field_not_null':
+        if (r.path.trim()) out.push({ type: 'field_not_null', path: r.path.trim(), ...enabledFlag });
+        break;
       case 'field_equals':
         if (r.path.trim()) out.push({ type: 'field_equals', path: r.path.trim(), expected: coerceExpected(r.expected), ...enabledFlag });
         break;
@@ -113,6 +117,7 @@ const FIELD_CONFIG = {
   status_code: [{ key: 'expected', placeholder: 'Expected status (e.g. 200)', type: 'number' }],
   response_time: [{ key: 'max_ms', placeholder: 'Max ms (e.g. 5000)', type: 'number' }],
   field_exists: [{ key: 'path', placeholder: 'Field path (e.g. data.id)' }],
+  field_not_null: [{ key: 'path', placeholder: 'Field path (e.g. data)' }],
   field_equals: [
     { key: 'path', placeholder: 'Field path (e.g. data.status)' },
     { key: 'expected', placeholder: 'Expected value' },

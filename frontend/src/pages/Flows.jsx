@@ -86,6 +86,7 @@ const ASSERTION_FAILURE_LABELS = {
   status_code: (a) => `Expected status ${a.expected}`,
   response_time: (a) => `Expected response time ≤ ${a.max_ms}ms`,
   field_exists: (a) => `Expected field "${a.path}" to exist`,
+  field_not_null: (a) => `Expected field "${a.path}" to not be null`,
   field_equals: (a) => `Expected "${a.path}" to equal ${JSON.stringify(a.expected)}`,
   field_contains: (a) => `Expected "${a.path}" to contain "${a.expected}"`,
   field_matches: (a) => `Expected "${a.path}" to match /${a.pattern}/`,

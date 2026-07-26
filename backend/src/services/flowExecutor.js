@@ -191,6 +191,10 @@ function checkAssertions(assertions, response, responseTimeMs) {
         return { ...assertion, passed: responseTimeMs <= assertion.max_ms };
       case 'field_exists':
         return { ...assertion, passed: getField(response.data, assertion.path) !== undefined };
+      case 'field_not_null': {
+        const value = getField(response.data, assertion.path);
+        return { ...assertion, passed: value !== null && value !== undefined };
+      }
       case 'field_equals':
         return { ...assertion, passed: getField(response.data, assertion.path) === assertion.expected };
       case 'field_contains': {

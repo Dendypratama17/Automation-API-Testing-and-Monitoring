@@ -5,6 +5,7 @@ const ASSERTION_PARTS = {
   status_code: (a) => ({ label: 'Status code =', value: a.expected }),
   response_time: (a) => ({ label: 'Response time ≤', value: `${a.max_ms}ms` }),
   field_exists: (a) => ({ label: `Field "${a.path}" exists`, value: '' }),
+  field_not_null: (a) => ({ label: `Field "${a.path}" is not null`, value: '' }),
   field_equals: (a) => ({ label: `Field "${a.path}" =`, value: JSON.stringify(a.expected) }),
   field_contains: (a) => ({ label: `Field "${a.path}" contains`, value: `"${a.expected}"` }),
   field_matches: (a) => ({ label: `Field "${a.path}" matches`, value: `/${a.pattern}/` }),
