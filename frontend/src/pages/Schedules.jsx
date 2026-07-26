@@ -19,6 +19,16 @@ const CRON_PRESETS = [
   { label: 'Every day at 6pm', value: '0 18 * * *' },
 ];
 
+// DD/MM/YYYY instead of the browser-locale-dependent default (often M/D/YYYY)
+// — matches the Dashboard's date formatting.
+function formatDateTime(dateStr) {
+  const d = new Date(dateStr);
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return `${day}/${month}/${d.getFullYear()}, ${time}`;
+}
+
 // Just the path, not the full {{base_url}}-resolved URL — matches the
 // Dashboard's Resource column so run history reads consistently.
 function resourcePath(url) {
@@ -203,11 +213,11 @@ export default function Schedules() {
         <table>
           <thead>
             <tr>
+              <th style={{ width: 140 }}>Date Created</th>
               <th style={{ width: 160 }}>Name</th>
               <th style={{ width: 100 }}>Cron</th>
               <th style={{ width: 140 }}>Flow</th>
               <th style={{ width: 110 }}>Environment</th>
-              <th style={{ width: 140 }}>Date Created</th>
               <th style={{ width: 150 }}>Last Run</th>
               <th style={{ width: 150 }}>Runs</th>
               <th style={{ width: 80 }}>Action</th>
@@ -221,6 +231,7 @@ export default function Schedules() {
                 onClick={() => openScheduleRuns(s)}
                 title="Click to view run history"
               >
+                <td className="hint" style={{ whiteSpace: 'nowrap' }}>{formatDateTime(s.created_at)}</td>
                 <td title={s.name}>
                   <span className="truncate" style={{ maxWidth: '100%' }}>{s.name}</span>
                   {s.deleted_at && <span className="badge fail" style={{ marginLeft: 6 }}>stopped</span>}
@@ -231,8 +242,7 @@ export default function Schedules() {
                   {s.environment_name}
                   {s.is_protected && <span className="badge fail" style={{ marginLeft: 6 }}>protected</span>}
                 </td>
-                <td className="hint" style={{ whiteSpace: 'nowrap' }}>{new Date(s.created_at).toLocaleString()}</td>
-                <td className="hint" style={{ whiteSpace: 'nowrap' }}>{s.last_run_at ? new Date(s.last_run_at).toLocaleString() : 'never'}</td>
+                <td className="hint" style={{ whiteSpace: 'nowrap' }}>{s.last_run_at ? formatDateTime(s.last_run_at) : 'never'}</td>
                 <td style={{ fontSize: 12.5 }}>
                   {Number(s.total_runs) > 0 ? (
                     <span className="hint">
@@ -292,7 +302,7 @@ export default function Schedules() {
                     onClick={() => toggleExpandRun(r)}
                     style={{ cursor: 'pointer', background: expandedRunId === r.id ? 'var(--accent-soft)' : undefined }}
                   >
-                    <td className="hint" style={{ whiteSpace: 'nowrap' }}>{new Date(r.created_at).toLocaleString()}</td>
+                    <td className="hint" style={{ whiteSpace: 'nowrap' }}>{formatDateTime(r.created_at)}</td>
                     <td className="mono hint">{r.id}</td>
                     <td><span className={`badge ${r.status.toLowerCase()}`}>{r.status}</span></td>
                     <td className="hint">{r.pass_count}/{r.step_count} passed</td>
