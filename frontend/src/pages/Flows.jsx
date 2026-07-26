@@ -1106,13 +1106,6 @@ export default function Flows() {
                   <option value="">Select folder...</option>
                   {flattenFolders(folders).map((f) => <option key={f.id} value={f.id}>{folderOptionLabel(f)}</option>)}
                 </select>
-                <label style={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
-                  <input
-                    type="checkbox"
-                    checked={editingFlow.stop_on_failure}
-                    onChange={(e) => setEditingFlow({ ...editingFlow, stop_on_failure: e.target.checked })}
-                  /> Stop if a step FAILs/ERRORs
-                </label>
                 <select
                   value={editingFlow.web_login_credential_id ?? ''}
                   onChange={(e) => setEditingFlow({ ...editingFlow, web_login_credential_id: e.target.value ? Number(e.target.value) : null })}
@@ -1124,6 +1117,13 @@ export default function Flows() {
                     <option key={c.id} value={c.id}>Refresh auth via: {c.name}</option>
                   ))}
                 </select>
+                <label style={{ flexShrink: 0, whiteSpace: 'nowrap', marginLeft: 'auto' }}>
+                  <input
+                    type="checkbox"
+                    checked={editingFlow.stop_on_failure}
+                    onChange={(e) => setEditingFlow({ ...editingFlow, stop_on_failure: e.target.checked })}
+                  /> Stop if a step FAILs/ERRORs
+                </label>
               </div>
 
               <h4 style={{ marginTop: 20 }}>Steps</h4>

@@ -168,7 +168,7 @@ export default function Authorization() {
             <tr>
               <th style={{ width: 32 }}></th>
               <th style={{ width: 180 }}>Name</th>
-              <th style={{ width: 100 }}>Type</th>
+              <th style={{ width: 120 }}>Type</th>
               <th>Username</th>
               <th>Password</th>
               <th style={{ width: 100 }}>Env</th>

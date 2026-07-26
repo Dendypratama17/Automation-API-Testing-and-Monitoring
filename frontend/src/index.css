@@ -416,6 +416,7 @@ tbody td:last-child, thead th:last-child { padding-right: 20px; }
   font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 .badge.pass { background: var(--pass-bg); color: var(--pass); }
 .badge.fail { background: var(--fail-bg); color: var(--fail); }
