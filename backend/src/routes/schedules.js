@@ -73,8 +73,11 @@ router.get('/:id/history', catchAsync(async (req, res) => {
   res.json(statsResult.rows[0]);
 }));
 
-// Individual past runs for this specific schedule (most recent first) — the
-// request/response detail behind the summary counts on the list and in /history.
+// Individual past Flow Runs for this specific schedule (most recent first) —
+// one row per run (not per step), same shape as the Dashboard's Recent Hits,
+// so a schedule that ran an 11-step flow shows as ONE entry instead of 11.
+// Full step-by-step detail for a given run is fetched separately via
+// GET /flow-runs/:id when a row is expanded.
 router.get('/:id/runs', catchAsync(async (req, res) => {
   const limit = req.query.limit ? parseInt(req.query.limit) : 20;
   const scheduleResult = await pool.query('SELECT * FROM schedules WHERE id=$1', [req.params.id]);
@@ -82,12 +85,17 @@ router.get('/:id/runs', catchAsync(async (req, res) => {
   if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
 
   const runsResult = await pool.query(
-    `SELECT frs.*
-     FROM flow_run_steps frs
-     JOIN flow_runs fr ON fr.id = frs.flow_run_id
+    `SELECT
+       fr.id, fr.status, fr.created_at, fr.triggered_by,
+       COUNT(frs.id) as step_count,
+       COUNT(frs.id) FILTER (WHERE frs.status = 'PASS') as pass_count,
+       SUM(frs.response_time_ms) as total_duration_ms
+     FROM flow_runs fr
      JOIN schedules s ON s.id = $1
+     LEFT JOIN flow_run_steps frs ON frs.flow_run_id = fr.id
      WHERE ${SCHEDULE_RUN_MATCH}
-     ORDER BY frs.created_at DESC
+     GROUP BY fr.id
+     ORDER BY fr.created_at DESC
      LIMIT $2`,
     [req.params.id, limit]
   );

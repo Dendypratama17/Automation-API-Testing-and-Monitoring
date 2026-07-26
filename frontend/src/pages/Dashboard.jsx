@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   LineChart, Line, Bar, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ReferenceLine, ResponsiveContainer,
 } from 'recharts';
-import { getEndpointDetail, getEndpointTrend, getAlerts, getLastRuns, getLastFlowRuns, getAnalytics, getEnvironments, getFlowRun } from '../api/client';
+import { getEndpointDetail, getEndpointTrend, getAlerts, getLastRuns, getLastFlowRuns, getAnalytics, getEnvironments, getFlowRun, getFlow } from '../api/client';
 import JsonBlock from '../components/JsonBlock.jsx';
 import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
@@ -19,12 +19,6 @@ const RANGE_PRESETS = [
   { key: '7d', label: '7 Days', days: 7 },
   { key: '1m', label: '1 Month', days: 30 },
 ];
-
-// Simple OK/Error split, based on the actual HTTP status code — 200/201 count
-// as OK, anything else (4xx/5xx, or no response at all) counts as Error.
-function isOk(row) {
-  return row.response_status_code === 200 || row.response_status_code === 201;
-}
 
 // Colored by the HTTP status code's leading digit — not by the assertion
 // outcome (that's the separate Expected column): 2xx/3xx green, 4xx amber
@@ -80,10 +74,10 @@ function FlowRunHitRow({ row, selectedRowId, onSelect }) {
       style={{ cursor: 'pointer', background: selectedRowId === row.id ? 'var(--accent-soft)' : undefined }}
     >
       <td className="hint" style={{ whiteSpace: 'nowrap' }}>{formatDateTime(row.created_at)}</td>
+      <td className="mono hint">{row.id}</td>
       <td title={row.flow_name}>
         <span className="truncate" style={{ maxWidth: '100%' }}>{row.flow_name}</span>
       </td>
-      <td>{row.environment_name}</td>
       <td>{expectedBadge(row)}</td>
       <td className="hint">{passRatio}</td>
       <td className="mono">{row.total_duration_ms != null ? `${row.total_duration_ms}ms` : '-'}</td>
@@ -97,7 +91,7 @@ function matchesFlowRunFilters(row, { envFilter, resourceFilter, statusFilter })
   if (statusFilter === 'error' && row.status === 'PASS') return false;
   if (resourceFilter.trim()) {
     const needle = resourceFilter.trim().toLowerCase();
-    const haystack = `${row.flow_name || ''} ${row.endpoint_names || ''}`.toLowerCase();
+    const haystack = `${row.id} ${row.flow_name || ''} ${row.endpoint_names || ''}`.toLowerCase();
     if (!haystack.includes(needle)) return false;
   }
   return true;
@@ -127,7 +121,7 @@ function HitRow({ row, selectedRowId, onSelect }) {
 // Full detail for one selected hit — rendered right below whichever table
 // (Recent Hits or Recent Alerts) the row was clicked from, so it never
 // appears to "do nothing" when clicked from the lower table.
-function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, trend, closeDetail, detailRef }) {
+function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, stepHeaders, trend, closeDetail, detailRef }) {
   return (
     <div className="card" ref={detailRef}>
       <div className="card-row">
@@ -218,7 +212,7 @@ function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, trend, 
         <div className="stack" style={{ minWidth: 0 }}>
           <div>
             <span className="field-label">Request Headers</span>
-            <JsonBlock value={detail.endpoint.headers} />
+            <JsonBlock value={stepHeaders ?? detail.endpoint.headers} />
           </div>
           <div>
             <span className="field-label">Request Body</span>
@@ -246,11 +240,17 @@ function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, trend, 
 
 function matchesFilters(row, { envFilter, resourceFilter, statusFilter }) {
   if (envFilter !== 'all' && row.environment_name !== envFilter) return false;
-  if (statusFilter === 'ok' && !isOk(row)) return false;
-  if (statusFilter === 'error' && isOk(row)) return false;
+  // Match the "Today X OK / Y Error" badge and the Recent Hits status filter:
+  // OK/Error is decided by the assertion outcome (row.status), not the raw
+  // HTTP code — a step can fail its assertions while still getting back a
+  // 200/201, and that must still count (and show up) as an error.
+  if (statusFilter === 'ok' && row.status !== 'PASS') return false;
+  if (statusFilter === 'error' && row.status === 'PASS') return false;
   if (resourceFilter.trim()) {
     const needle = resourceFilter.trim().toLowerCase();
-    const haystack = `${row.request_url || ''} ${row.endpoint_name || ''} ${row.flow_name || ''}`.toLowerCase();
+    // flow_run_id (not this row's own step id) — so typing a Recent Hits ID
+    // into search also surfaces that same run's alert rows below.
+    const haystack = `${row.flow_run_id ?? ''} ${row.request_url || ''} ${row.endpoint_name || ''} ${row.flow_name || ''}`.toLowerCase();
     if (!haystack.includes(needle)) return false;
   }
   return true;
@@ -275,6 +275,7 @@ export default function Dashboard() {
   const [detail, setDetail] = useState(null);
   const [trend, setTrend] = useState([]);
   const [runSteps, setRunSteps] = useState([]);
+  const [stepHeaders, setStepHeaders] = useState(null);
   const detailRef = useRef(null);
 
   const [rangePreset, setRangePreset] = useState('7d');
@@ -318,7 +319,11 @@ export default function Dashboard() {
     const fetchToday = () => {
       const start = new Date();
       start.setHours(0, 0, 0, 0);
-      getLastRuns({ since: start.toISOString() }).then((data) => setTodayRuns(data.rows)).catch(() => setTodayRuns([]));
+      // No day is expected to produce more than a few thousand step-hits —
+      // the default 300-row cap (meant for the paginated Recent Hits view)
+      // would otherwise silently truncate this "whole day" OK/Error count,
+      // undercounting errors that happened to fall outside the most recent 300.
+      getLastRuns({ since: start.toISOString(), limit: 5000 }).then((data) => setTodayRuns(data.rows)).catch(() => setTodayRuns([]));
     };
     fetchToday();
     const interval = setInterval(fetchToday, 60000);
@@ -346,6 +351,26 @@ export default function Dashboard() {
     if (!selectedRow?.flow_run_id) { setRunSteps([]); return; }
     let cancelled = false;
     getFlowRun(selectedRow.flow_run_id).then((run) => { if (!cancelled) setRunSteps(run.steps || []); }).catch(() => { if (!cancelled) setRunSteps([]); });
+    return () => { cancelled = true; };
+  }, [selectedRow]);
+
+  // The endpoint's own headers (`detail.endpoint.headers`, fetched above)
+  // don't reflect anything the Flow step itself overrode/added (e.g. an
+  // Accept-Language row added only in this flow) — flow_run_steps doesn't
+  // persist the exact resolved headers either, so the closest accurate
+  // stand-in is the flow step's OWN saved header config (still a template,
+  // same caveat as the Request Body box already has).
+  useEffect(() => {
+    if (!selectedRow?.flow_run_id || selectedRow.step_order == null) { setStepHeaders(null); return; }
+    let cancelled = false;
+    getFlowRun(selectedRow.flow_run_id)
+      .then((run) => getFlow(run.flow_id))
+      .then((flow) => {
+        if (cancelled) return;
+        const step = (flow.steps || []).find((s) => s.step_order === selectedRow.step_order);
+        setStepHeaders(step ? step.headers : null);
+      })
+      .catch(() => { if (!cancelled) setStepHeaders(null); });
     return () => { cancelled = true; };
   }, [selectedRow]);
 
@@ -426,7 +451,7 @@ export default function Dashboard() {
             {environments.map((env) => <option key={env.id} value={env.name}>{env.name}</option>)}
           </select>
           <input
-            placeholder="Search resource or flow..."
+            placeholder="Search ID, resource, or flow..."
             value={resourceFilter}
             onChange={(e) => setResourceFilter(e.target.value)}
             style={{ width: 210 }}
@@ -466,8 +491,8 @@ export default function Dashboard() {
           <thead>
             <tr>
               <th style={{ width: 170 }}>Date</th>
+              <th style={{ width: 70 }}>ID</th>
               <th style={{ width: 220 }}>Flow</th>
-              <th style={{ width: 100 }}>Env</th>
               <th style={{ width: 90 }}>Result</th>
               <th style={{ width: 110 }}>Steps</th>
               <th style={{ width: 90 }}>Duration</th>
@@ -495,7 +520,7 @@ export default function Dashboard() {
       {detail && selectedRow && selectedFrom === 'hits' && (
         <HitDetailPanel
           detail={detail} selectedRow={selectedRow} setSelectedRow={setSelectedRow}
-          runSteps={runSteps} trend={trend} closeDetail={closeDetail} detailRef={detailRef}
+          runSteps={runSteps} stepHeaders={stepHeaders} trend={trend} closeDetail={closeDetail} detailRef={detailRef}
         />
       )}
 
@@ -509,7 +534,7 @@ export default function Dashboard() {
               <th style={{ width: 210 }}>Resource</th>
               <th style={{ width: 90 }}>Status</th>
               <th style={{ width: 200 }}>Flow</th>
-              <th style={{ width: 90 }}>Expected</th>
+              <th style={{ width: 90 }}>Result</th>
               <th style={{ width: 90 }}>Duration</th>
             </tr>
           </thead>
@@ -533,7 +558,7 @@ export default function Dashboard() {
       {detail && selectedRow && selectedFrom === 'alerts' && (
         <HitDetailPanel
           detail={detail} selectedRow={selectedRow} setSelectedRow={setSelectedRow}
-          runSteps={runSteps} trend={trend} closeDetail={closeDetail} detailRef={detailRef}
+          runSteps={runSteps} stepHeaders={stepHeaders} trend={trend} closeDetail={closeDetail} detailRef={detailRef}
         />
       )}
 

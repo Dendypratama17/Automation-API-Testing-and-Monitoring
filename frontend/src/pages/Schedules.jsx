@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  getSchedules, createSchedule, deleteSchedule, getScheduleHistory, getScheduleRuns, getEnvironments, getFlows,
+  getSchedules, createSchedule, deleteSchedule, getScheduleHistory, getScheduleRuns, getEnvironments, getFlows, getFlowRun,
 } from '../api/client';
 import { StopIcon } from '../components/icons.jsx';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
@@ -69,6 +69,14 @@ export default function Schedules() {
   const [form, setForm] = useState({ name: '', cron_expression: '', flow_id: '', environment_id: '' });
   const [formErrors, setFormErrors] = useState({});
   const [viewingSchedule, setViewingSchedule] = useState(null); // { schedule, runs }
+  // Which run (in viewingSchedule.runs) is expanded, its fetched step detail,
+  // and which of those steps is currently shown — same drill-down pattern as
+  // the Dashboard's Recent Hits: one row per Flow Run, expand for the
+  // step-by-step breakdown instead of dumping every step flat.
+  const [expandedRunId, setExpandedRunId] = useState(null);
+  const [expandedRunDetail, setExpandedRunDetail] = useState(null);
+  const [expandingRunId, setExpandingRunId] = useState(null);
+  const [selectedStepIdx, setSelectedStepIdx] = useState(0);
 
   const load = () => getSchedules().then(setSchedules);
   useEffect(() => {
@@ -84,6 +92,24 @@ export default function Schedules() {
   const openScheduleRuns = async (schedule) => {
     const runs = await getScheduleRuns(schedule.id, { limit: 20 }).catch(() => []);
     setViewingSchedule({ schedule, runs });
+    setExpandedRunId(null);
+    setExpandedRunDetail(null);
+  };
+
+  const toggleExpandRun = async (run) => {
+    if (expandedRunId === run.id) { setExpandedRunId(null); setExpandedRunDetail(null); return; }
+    setExpandedRunId(run.id);
+    setExpandedRunDetail(null);
+    setSelectedStepIdx(0);
+    setExpandingRunId(run.id);
+    try {
+      const detail = await getFlowRun(run.id);
+      setExpandedRunDetail(detail);
+    } catch {
+      setExpandedRunDetail({ steps: [] });
+    } finally {
+      setExpandingRunId(null);
+    }
   };
 
   const handleCreate = async () => {
@@ -247,82 +273,141 @@ export default function Schedules() {
             <h4 style={{ margin: 0 }}>Run History: {viewingSchedule.schedule.name}</h4>
             <button className="btn-quiet" onClick={() => setViewingSchedule(null)}>✕ Close</button>
           </div>
-          <div className="stack" style={{ marginTop: 16, gap: 20 }}>
-            {viewingSchedule.runs.length === 0 && <span className="hint">No runs yet.</span>}
-            {viewingSchedule.runs.map((r, idx) => {
-              const failureReasons = formatFailureReasons(r.error_message);
-              const hasAssertionResults = Array.isArray(r.assertion_results) && r.assertion_results.length > 0;
-              return (
-                <div
-                  key={r.id}
-                  style={idx < viewingSchedule.runs.length - 1 ? { borderBottom: '1px solid var(--border-soft)', paddingBottom: 20 } : undefined}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span className={`badge ${r.status.toLowerCase()}`}>{r.status}</span>
-                    <span className="hint">{new Date(r.created_at).toLocaleString()}</span>
-                  </div>
-                  <div className="mono hint" style={{ fontSize: 12, marginTop: 6 }}>
-                    {r.request_method} {resourcePath(r.request_url)}
-                  </div>
-                  <div className="hint" style={{ display: 'flex', gap: 16, fontSize: 12.5, marginTop: 6, flexWrap: 'wrap' }}>
-                    <span>Status: {r.response_status_code ?? '-'}</span>
-                    <span>Duration: {r.response_time_ms ?? '-'}ms</span>
-                    {r.request_id && <span className="mono">Request ID: {r.request_id}</span>}
+
+          <div className="scroll-table" style={{ marginTop: 12 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 170 }}>Date</th>
+                  <th style={{ width: 70 }}>ID</th>
+                  <th style={{ width: 90 }}>Result</th>
+                  <th style={{ width: 110 }}>Steps</th>
+                  <th style={{ width: 90 }}>Duration</th>
+                </tr>
+              </thead>
+              <tbody>
+                {viewingSchedule.runs.map((r) => (
+                  <tr
+                    key={r.id}
+                    onClick={() => toggleExpandRun(r)}
+                    style={{ cursor: 'pointer', background: expandedRunId === r.id ? 'var(--accent-soft)' : undefined }}
+                  >
+                    <td className="hint" style={{ whiteSpace: 'nowrap' }}>{new Date(r.created_at).toLocaleString()}</td>
+                    <td className="mono hint">{r.id}</td>
+                    <td><span className={`badge ${r.status.toLowerCase()}`}>{r.status}</span></td>
+                    <td className="hint">{r.pass_count}/{r.step_count} passed</td>
+                    <td className="mono">{r.total_duration_ms != null ? `${r.total_duration_ms}ms` : '-'}</td>
+                  </tr>
+                ))}
+                {viewingSchedule.runs.length === 0 && (
+                  <tr><td colSpan={5} className="empty-state">No runs yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {expandedRunId && (
+            <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border-soft)' }}>
+              {expandingRunId === expandedRunId || !expandedRunDetail ? (
+                <span className="hint">Loading steps…</span>
+              ) : expandedRunDetail.steps.length === 0 ? (
+                <span className="hint">No step detail available for this run.</span>
+              ) : (
+                <>
+                  <span className="field-label">Steps In This Run</span>
+                  <div className="stack" style={{ gap: 4, marginTop: 4, marginBottom: 18 }}>
+                    {expandedRunDetail.steps.map((s, idx) => (
+                      <div
+                        key={s.id}
+                        onClick={() => setSelectedStepIdx(idx)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5,
+                          fontWeight: idx === selectedStepIdx ? 700 : 400,
+                          cursor: idx === selectedStepIdx ? 'default' : 'pointer',
+                          padding: '4px 6px', margin: '-4px -6px', borderRadius: 6,
+                        }}
+                        onMouseEnter={(e) => { if (idx !== selectedStepIdx) e.currentTarget.style.background = 'var(--surface-2)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                      >
+                        <span className={`badge ${s.status.toLowerCase()}`} style={{ flexShrink: 0 }}>{s.status}</span>
+                        <span>{s.step_order + 1}. {s.name}</span>
+                        {idx === selectedStepIdx && <span className="hint">(currently viewing)</span>}
+                      </div>
+                    ))}
                   </div>
 
-                  {hasAssertionResults ? (
-                    <div style={{ marginTop: 10 }}>
-                      <span className="field-label">Assertions</span>
-                      <div className="stack" style={{ gap: 4, marginTop: 4 }}>
-                        {r.assertion_results.map((a, i) => {
-                          const parts = describeAssertionParts(a);
-                          return (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
-                              <AssertionStatusIcon passed={a.passed} />
-                              <span>{parts.label}</span>
-                              {parts.value !== '' && (
-                                <span className="mono" style={{ color: 'var(--text-dim)', overflowWrap: 'anywhere' }}>{parts.value}</span>
+                  {(() => {
+                    const step = expandedRunDetail.steps[selectedStepIdx];
+                    if (!step) return null;
+                    const failureReasons = formatFailureReasons(step.error_message);
+                    const hasAssertionResults = Array.isArray(step.assertion_results) && step.assertion_results.length > 0;
+                    return (
+                      <div>
+                        <div className="mono hint" style={{ fontSize: 12 }}>
+                          {step.request_method} {resourcePath(step.request_url)}
+                        </div>
+                        <div className="hint" style={{ display: 'flex', gap: 16, fontSize: 12.5, marginTop: 6, flexWrap: 'wrap' }}>
+                          <span>Status: {step.response_status_code ?? '-'}</span>
+                          <span>Duration: {step.response_time_ms ?? '-'}ms</span>
+                          {step.request_id && <span className="mono">Request ID: {step.request_id}</span>}
+                        </div>
+
+                        {hasAssertionResults ? (
+                          <div style={{ marginTop: 10 }}>
+                            <span className="field-label">Assertions</span>
+                            <div className="stack" style={{ gap: 4, marginTop: 4 }}>
+                              {step.assertion_results.map((a, i) => {
+                                const parts = describeAssertionParts(a);
+                                return (
+                                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                                    <AssertionStatusIcon passed={a.passed} />
+                                    <span>{parts.label}</span>
+                                    {parts.value !== '' && (
+                                      <span className="mono" style={{ color: 'var(--text-dim)', overflowWrap: 'anywhere' }}>{parts.value}</span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : failureReasons.length > 0 && (
+                          <div
+                            style={{
+                              marginTop: 10, padding: '8px 12px', borderRadius: 8,
+                              background: 'var(--fail-bg)', color: 'var(--fail)', fontSize: 12.5,
+                            }}
+                          >
+                            {failureReasons.map((reason, i) => <div key={i}>{reason}</div>)}
+                          </div>
+                        )}
+
+                        {(step.request_body != null || step.response_body != null) && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 14 }}>
+                            <div style={{ minWidth: 0 }}>
+                              {step.request_body != null && (
+                                <>
+                                  <span className="field-label">Request Body</span>
+                                  <JsonBlock value={step.request_body} />
+                                </>
                               )}
                             </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : failureReasons.length > 0 && (
-                    <div
-                      style={{
-                        marginTop: 10, padding: '8px 12px', borderRadius: 8,
-                        background: 'var(--fail-bg)', color: 'var(--fail)', fontSize: 12.5,
-                      }}
-                    >
-                      {failureReasons.map((reason, i) => <div key={i}>{reason}</div>)}
-                    </div>
-                  )}
-
-                  {(r.request_body != null || r.response_body != null) && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 14 }}>
-                      <div style={{ minWidth: 0 }}>
-                        {r.request_body != null && (
-                          <>
-                            <span className="field-label">Request Body</span>
-                            <JsonBlock value={r.request_body} />
-                          </>
+                            <div style={{ minWidth: 0 }}>
+                              {step.response_body != null && (
+                                <>
+                                  <span className="field-label">Response Body</span>
+                                  <JsonBlock value={step.response_body} />
+                                </>
+                              )}
+                            </div>
+                          </div>
                         )}
                       </div>
-                      <div style={{ minWidth: 0 }}>
-                        {r.response_body != null && (
-                          <>
-                            <span className="field-label">Response Body</span>
-                            <JsonBlock value={r.response_body} />
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                    );
+                  })()}
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
