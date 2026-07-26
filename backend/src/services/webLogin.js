@@ -1,0 +1,100 @@
+const puppeteer = require('puppeteer');
+
+// Privy's OAuth2 login page (stg-oauth2.privypass.id and equivalents) is a
+// client-rendered SPA whose login request body is encrypted in the browser
+// (device fingerprinting + an obfuscated payload) — it cannot be replayed as
+// a plain HTTP POST. A real headless browser is the only reliable way to
+// drive it: type PrivyID, click Continue, type password, click Login, then
+// read the session token back out of the cookie the app sets after the
+// OAuth code/token exchange completes.
+const TOKEN_COOKIE_NAME = 'oauth/token';
+const NAV_TIMEOUT_MS = 30000;
+
+function findButtonByText(page, text) {
+  return page.evaluate((label) => {
+    const btn = Array.from(document.querySelectorAll('button'))
+      .find((b) => b.textContent.trim().toLowerCase() === label);
+    if (btn) { btn.click(); return true; }
+    return false;
+  }, text);
+}
+
+/**
+ * Logs into a Privy OAuth2 login page with `cred.username` (PrivyID) and
+ * `cred.password`, then returns the session token found in the
+ * `oauth/token` cookie afterward. Throws with a descriptive message if the
+ * login page's structure doesn't match what's expected, or the credentials
+ * are rejected.
+ */
+async function fetchWebLoginToken(cred) {
+  if (!cred.login_url) throw new Error('This credential has no Login URL configured.');
+
+  const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  try {
+    const page = await browser.newPage();
+    await page.goto(cred.login_url, { waitUntil: 'networkidle2', timeout: NAV_TIMEOUT_MS });
+
+    await page.waitForSelector('input', { timeout: 15000 });
+    await page.type('input', cred.username, { delay: 20 });
+    if (!(await findButtonByText(page, 'continue'))) {
+      throw new Error('Could not find the "Continue" button on the login page — its layout may have changed.');
+    }
+
+    await page.waitForSelector('input[type=password]', { timeout: 15000 }).catch(() => {
+      throw new Error('Password field never appeared — PrivyID may be invalid, or the page layout changed.');
+    });
+    await page.type('input[type=password]', cred.password, { delay: 20 });
+    if (!(await findButtonByText(page, 'login'))) {
+      throw new Error('Could not find the "Login" button on the login page — its layout may have changed.');
+    }
+
+    await page.waitForNetworkIdle({ idleTime: 1500, timeout: 20000 }).catch(() => {});
+
+    const cookies = await page.cookies();
+    const tokenCookie = cookies.find((c) => c.name === TOKEN_COOKIE_NAME);
+    if (!tokenCookie) {
+      const stillOnLoginPage = page.url().includes(new URL(cred.login_url).hostname);
+      throw new Error(
+        stillOnLoginPage
+          ? 'Login did not complete — PrivyID/password were likely rejected.'
+          : `Logged in, but no "${TOKEN_COOKIE_NAME}" cookie was found — the app may store the token differently now.`
+      );
+    }
+
+    const expiresCookie = cookies.find((c) => c.name === 'oauth/expires');
+    return { token: tokenCookie.value, expires: expiresCookie ? decodeURIComponent(expiresCookie.value) : null };
+  } finally {
+    await browser.close();
+  }
+}
+
+// The real login (fetchWebLoginToken) takes ~15-20s since it's an actual
+// headless browser session — too slow to pay on every single flow run when
+// the JWT it returns is typically valid for ~24h. Cache per credential id
+// and only log in again once the cached token is within REFRESH_MARGIN_MS of
+// expiring (or was never fetched). In-memory only — resets on server
+// restart, which just means the next run re-logs in, no worse than before.
+const tokenCache = new Map(); // credential id -> { token, expiresAt }
+const REFRESH_MARGIN_MS = 2 * 60 * 1000;
+
+async function getWebLoginToken(cred) {
+  const cached = tokenCache.get(cred.id);
+  if (cached && cached.expiresAt - Date.now() > REFRESH_MARGIN_MS) {
+    return cached.token;
+  }
+
+  const { token, expires } = await fetchWebLoginToken(cred);
+  const expiresAt = expires ? Date.parse(expires) : NaN;
+  tokenCache.set(cred.id, { token, expiresAt: Number.isNaN(expiresAt) ? Date.now() + 10 * 60 * 1000 : expiresAt });
+  return token;
+}
+
+// Lets a manual "Test Login" (always a real, uncached check) also prime the
+// cache with its result, so the next real flow run doesn't pay for a second
+// login right after someone just confirmed the credential works.
+function primeTokenCache(credentialId, token, expires) {
+  const expiresAt = expires ? Date.parse(expires) : NaN;
+  tokenCache.set(credentialId, { token, expiresAt: Number.isNaN(expiresAt) ? Date.now() + 10 * 60 * 1000 : expiresAt });
+}
+
+module.exports = { fetchWebLoginToken, getWebLoginToken, primeTokenCache };

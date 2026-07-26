@@ -1,0 +1,129 @@
+const express = require('express');
+const router = express.Router();
+const pool = require('../db/pool');
+const catchAsync = require('../utils/catchAsync');
+const { refreshSchedule, stopSchedule } = require('../services/scheduler');
+
+// Matches a flow_run to a specific schedule: precisely via schedule_id for
+// runs recorded after that column existed, falling back to a flow+environment
+// +time-window match (the run happened while this schedule was active) for
+// older runs recorded before schedule_id was tracked. Without this, two
+// schedules pointed at the same flow+environment would share run counts.
+const SCHEDULE_RUN_MATCH = `
+  (
+    fr.schedule_id = s.id
+    OR (
+      fr.schedule_id IS NULL AND fr.triggered_by = 'scheduler'
+      AND fr.flow_id = s.flow_id AND fr.environment_id = s.environment_id
+      AND fr.created_at >= s.created_at AND fr.created_at <= COALESCE(s.deleted_at, NOW())
+    )
+  )
+`;
+
+// GET all schedules, with a per-row run-outcome summary (pass/fail/error/drift
+// counts scoped to this specific schedule) so the list itself shows health at
+// a glance, without a separate request per row.
+router.get('/', catchAsync(async (req, res) => {
+  const result = await pool.query(`
+    SELECT
+      s.*, e.name as environment_name, e.is_protected, f.name as flow_name,
+      COALESCE(stats.total_runs, 0) as total_runs,
+      COALESCE(stats.pass_count, 0) as pass_count,
+      COALESCE(stats.fail_count, 0) as fail_count,
+      COALESCE(stats.error_count, 0) as error_count,
+      COALESCE(stats.drift_count, 0) as drift_count
+    FROM schedules s
+    JOIN environments e ON e.id = s.environment_id
+    JOIN flows f ON f.id = s.flow_id
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(*) as total_runs,
+        COUNT(*) FILTER (WHERE status = 'PASS') as pass_count,
+        COUNT(*) FILTER (WHERE status = 'FAIL') as fail_count,
+        COUNT(*) FILTER (WHERE status = 'ERROR') as error_count,
+        COUNT(*) FILTER (WHERE status = 'SCHEMA_DRIFT') as drift_count
+      FROM flow_runs fr
+      WHERE ${SCHEDULE_RUN_MATCH}
+    ) stats ON true
+    ORDER BY s.id DESC
+  `);
+  res.json(result.rows);
+}));
+
+// Run history/stats for this specific schedule — shown before deleting a
+// schedule so the user knows what they're giving up.
+router.get('/:id/history', catchAsync(async (req, res) => {
+  const scheduleResult = await pool.query('SELECT * FROM schedules WHERE id=$1', [req.params.id]);
+  const schedule = scheduleResult.rows[0];
+  if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+
+  const statsResult = await pool.query(
+    `SELECT
+       COUNT(*) as total_runs,
+       COUNT(*) FILTER (WHERE fr.status = 'PASS') as pass_count,
+       COUNT(*) FILTER (WHERE fr.status = 'FAIL') as fail_count,
+       COUNT(*) FILTER (WHERE fr.status = 'ERROR') as error_count,
+       COUNT(*) FILTER (WHERE fr.status = 'SCHEMA_DRIFT') as drift_count,
+       MIN(fr.created_at) as first_run_at,
+       MAX(fr.created_at) as last_run_at
+     FROM flow_runs fr, schedules s
+     WHERE s.id = $1 AND ${SCHEDULE_RUN_MATCH}`,
+    [req.params.id]
+  );
+  res.json(statsResult.rows[0]);
+}));
+
+// Individual past runs for this specific schedule (most recent first) — the
+// request/response detail behind the summary counts on the list and in /history.
+router.get('/:id/runs', catchAsync(async (req, res) => {
+  const limit = req.query.limit ? parseInt(req.query.limit) : 20;
+  const scheduleResult = await pool.query('SELECT * FROM schedules WHERE id=$1', [req.params.id]);
+  const schedule = scheduleResult.rows[0];
+  if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+
+  const runsResult = await pool.query(
+    `SELECT frs.*
+     FROM flow_run_steps frs
+     JOIN flow_runs fr ON fr.id = frs.flow_run_id
+     JOIN schedules s ON s.id = $1
+     WHERE ${SCHEDULE_RUN_MATCH}
+     ORDER BY frs.created_at DESC
+     LIMIT $2`,
+    [req.params.id, limit]
+  );
+  res.json(runsResult.rows);
+}));
+
+// CREATE schedule
+router.post('/', catchAsync(async (req, res) => {
+  const { name, cron_expression, flow_id, environment_id, is_active = true } = req.body;
+  const result = await pool.query(
+    `INSERT INTO schedules (name, cron_expression, flow_id, environment_id, is_active)
+     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [name, cron_expression, flow_id, environment_id, is_active]
+  );
+  refreshSchedule(result.rows[0]);
+  res.status(201).json(result.rows[0]);
+}));
+
+// UPDATE schedule
+router.put('/:id', catchAsync(async (req, res) => {
+  const { name, cron_expression, flow_id, environment_id, is_active } = req.body;
+  const result = await pool.query(
+    `UPDATE schedules SET name=$1, cron_expression=$2, flow_id=$3, environment_id=$4, is_active=$5, updated_at=NOW()
+     WHERE id=$6 RETURNING *`,
+    [name, cron_expression, flow_id, environment_id, is_active, req.params.id]
+  );
+  refreshSchedule(result.rows[0]);
+  res.json(result.rows[0]);
+}));
+
+// Soft-delete: unregisters the cron job but keeps the row (and its past run
+// history) visible in the list, marked as deleted, instead of erasing it.
+router.delete('/:id', catchAsync(async (req, res) => {
+  stopSchedule(Number(req.params.id));
+  await pool.query('UPDATE schedules SET is_active = false, deleted_at = NOW() WHERE id=$1', [req.params.id]);
+  res.status(204).send();
+}));
+
+module.exports = router;
