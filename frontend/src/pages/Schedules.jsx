@@ -107,12 +107,39 @@ export default function Schedules() {
     getFlows().then(setFlows);
   }, []);
 
+  // Keeps the Status column's Running/Active badge live regardless of
+  // whether a Run History panel is open. A schedule's own "running" window
+  // can be brief (e.g. an 8s flow on a 30s interval) — poll often enough
+  // (2s) to reliably catch it starting/finishing instead of only sampling
+  // it by chance.
+  useEffect(() => {
+    const interval = setInterval(load, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
   const openScheduleRuns = async (schedule) => {
-    const runs = await getScheduleRuns(schedule.id, { limit: 20 }).catch(() => []);
+    const runs = await getScheduleRuns(schedule.id, { limit: 100 }).catch(() => []);
     setViewingSchedule({ schedule, runs });
     setExpandedRunId(null);
     setExpandedRunDetail(null);
   };
+
+  // While the Run History panel is open, also poll that schedule's own run
+  // list — same 2s cadence as above, plus an immediate fetch on open instead
+  // of waiting out the first interval tick, so a just-finished run shows up
+  // (and the "running now" banner clears) without a stale multi-second lag.
+  useEffect(() => {
+    if (!viewingSchedule) return;
+    const scheduleId = viewingSchedule.schedule.id;
+    const refresh = () => {
+      getScheduleRuns(scheduleId, { limit: 100 }).then((runs) => {
+        setViewingSchedule((prev) => (prev && prev.schedule.id === scheduleId ? { ...prev, runs } : prev));
+      }).catch(() => {});
+    };
+    refresh();
+    const interval = setInterval(refresh, 2000);
+    return () => clearInterval(interval);
+  }, [viewingSchedule?.schedule.id]);
 
   const toggleExpandRun = async (run) => {
     if (expandedRunId === run.id) { setExpandedRunId(null); setExpandedRunDetail(null); return; }
@@ -156,7 +183,6 @@ export default function Schedules() {
     setForm({ name: '', cron_expression: '', flow_id: '', environment_id: '', duration_minutes: '' });
     load();
   };
-
 
   return (
     <div>
@@ -274,10 +300,16 @@ export default function Schedules() {
             <button className="btn-quiet" onClick={() => setViewingSchedule(null)}>✕ Close</button>
           </div>
 
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 12.5, color: 'var(--accent)' }}>
+            <span className="spinner" />
+            This list updates automatically as new runs come in.
+          </div>
+
           <div className="scroll-table" style={{ marginTop: 12 }}>
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 50 }}>No.</th>
                   <th style={{ width: 170 }}>Date</th>
                   <th style={{ width: 70 }}>ID</th>
                   <th style={{ width: 90 }}>Result</th>
@@ -286,12 +318,13 @@ export default function Schedules() {
                 </tr>
               </thead>
               <tbody>
-                {viewingSchedule.runs.map((r) => (
+                {viewingSchedule.runs.map((r, idx) => (
                   <tr
                     key={r.id}
                     onClick={() => toggleExpandRun(r)}
                     style={{ cursor: 'pointer', background: expandedRunId === r.id ? 'var(--accent-soft)' : undefined }}
                   >
+                    <td className="hint">{idx + 1}</td>
                     <td className="hint" style={{ whiteSpace: 'nowrap' }}>{formatDateTime(r.created_at)}</td>
                     <td className="mono hint">{r.id}</td>
                     <td><span className={`badge ${r.status.toLowerCase()}`}>{r.status}</span></td>
@@ -300,7 +333,7 @@ export default function Schedules() {
                   </tr>
                 ))}
                 {viewingSchedule.runs.length === 0 && (
-                  <tr><td colSpan={5} className="empty-state">No runs yet.</td></tr>
+                  <tr><td colSpan={6} className="empty-state">No runs yet.</td></tr>
                 )}
               </tbody>
             </table>

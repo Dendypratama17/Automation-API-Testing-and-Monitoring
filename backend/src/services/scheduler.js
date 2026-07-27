@@ -5,8 +5,18 @@ const { runFlowAndPersist } = require('./flowRunner');
 // Keep track of active cron tasks so they can be stopped/restarted on update
 const activeTasks = new Map(); // schedule_id -> cron task
 
+// A flow_runs row only gets INSERTed once executeFlow finishes — there's no
+// "in progress" row to poll from the DB while a scheduled run is mid-flight.
+// Track it here instead so the UI can show a live "Running..." state; purely
+// in-memory, so it resets (harmlessly) on server restart.
+const runningScheduleIds = new Set();
+function isScheduleRunning(scheduleId) {
+  return runningScheduleIds.has(scheduleId);
+}
+
 async function executeSchedule(schedule) {
   console.log(`[scheduler] Running schedule "${schedule.name}" (id=${schedule.id})`);
+  runningScheduleIds.add(schedule.id);
   try {
     const flowResult = await pool.query('SELECT * FROM flows WHERE id=$1', [schedule.flow_id]);
     const flow = flowResult.rows[0];
@@ -21,6 +31,8 @@ async function executeSchedule(schedule) {
     await pool.query('UPDATE schedules SET last_run_at = NOW() WHERE id = $1', [schedule.id]);
   } catch (err) {
     console.error(`[scheduler] Schedule "${schedule.name}" failed:`, err.message);
+  } finally {
+    runningScheduleIds.delete(schedule.id);
   }
 }
 
@@ -88,4 +100,4 @@ function stopSchedule(scheduleId) {
   }
 }
 
-module.exports = { initScheduler, refreshSchedule, stopSchedule };
+module.exports = { initScheduler, refreshSchedule, stopSchedule, isScheduleRunning };

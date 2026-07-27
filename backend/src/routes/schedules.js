@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const catchAsync = require('../utils/catchAsync');
-const { refreshSchedule, stopSchedule } = require('../services/scheduler');
+const { refreshSchedule, stopSchedule, isScheduleRunning } = require('../services/scheduler');
 
 // Matches a flow_run to a specific schedule: precisely via schedule_id for
 // runs recorded after that column existed, falling back to a flow+environment
@@ -47,7 +47,9 @@ router.get('/', catchAsync(async (req, res) => {
     ) stats ON true
     ORDER BY s.id DESC
   `);
-  res.json(result.rows);
+  // is_running comes from the scheduler's in-memory tracking, not the DB —
+  // there's no persisted "in progress" row until executeFlow finishes.
+  res.json(result.rows.map((s) => ({ ...s, is_running: isScheduleRunning(s.id) })));
 }));
 
 // Run history/stats for this specific schedule — shown before deleting a
