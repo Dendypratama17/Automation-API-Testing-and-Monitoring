@@ -184,6 +184,14 @@ export default function Schedules() {
     load();
   };
 
+  // viewingSchedule.schedule is a snapshot from whenever the panel was opened
+  // — look the live row up in `schedules` (kept fresh by the polling effect
+  // above) so a schedule stopped while its history is open still hides the
+  // "updates automatically" banner without needing to reopen the panel.
+  const currentViewedSchedule = viewingSchedule
+    ? schedules.find((s) => s.id === viewingSchedule.schedule.id) || viewingSchedule.schedule
+    : null;
+
   return (
     <div>
       <div className="page-header">
@@ -300,10 +308,12 @@ export default function Schedules() {
             <button className="btn-quiet" onClick={() => setViewingSchedule(null)}>✕ Close</button>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 12.5, color: 'var(--accent)' }}>
-            <span className="spinner" />
-            This list updates automatically as new runs come in.
-          </div>
+          {!currentViewedSchedule?.deleted_at && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 12.5, color: 'var(--accent)' }}>
+              <span className="spinner" />
+              This list updates automatically as new runs come in.
+            </div>
+          )}
 
           <div className="scroll-table" style={{ marginTop: 12 }}>
             <table>
