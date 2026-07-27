@@ -171,7 +171,8 @@ CREATE TABLE IF NOT EXISTS schedules (
   last_run_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  deleted_at TIMESTAMPTZ -- soft-delete: keeps the row (and its run history) visible instead of erasing it
+  deleted_at TIMESTAMPTZ, -- soft-delete: keeps the row (and its run history) visible instead of erasing it
+  auto_stop_at TIMESTAMPTZ -- optional "run for N minutes/hours" cutoff; a watchdog in scheduler.js stops it once reached
 );
 
 CREATE TABLE IF NOT EXISTS notifications_log (

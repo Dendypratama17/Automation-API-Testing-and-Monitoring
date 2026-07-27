@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
-  getSchedules, createSchedule, deleteSchedule, getScheduleHistory, getScheduleRuns, getEnvironments, getFlows, getFlowRun,
+  getSchedules, createSchedule, getScheduleRuns, getEnvironments, getFlows, getFlowRun,
 } from '../api/client';
-import { StopIcon } from '../components/icons.jsx';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
 import JsonBlock from '../components/JsonBlock.jsx';
@@ -17,6 +16,15 @@ const CRON_PRESETS = [
   { label: 'Every 1 hour', value: '0 * * * *' },
   { label: 'Every day at 12pm', value: '0 12 * * *' },
   { label: 'Every day at 6pm', value: '0 18 * * *' },
+];
+
+// How long the schedule keeps running before it auto-stops itself — separate
+// from the cron interval (how OFTEN it runs). Empty value = runs forever.
+const DURATION_PRESETS = [
+  { label: '5 minutes', value: '5' },
+  { label: '30 minutes', value: '30' },
+  { label: '1 hour', value: '60' },
+  { label: '2 hours', value: '120' },
 ];
 
 // DD/MM/YYYY instead of the browser-locale-dependent default (often M/D/YYYY)
@@ -76,7 +84,7 @@ export default function Schedules() {
   const [schedules, setSchedules] = useState([]);
   const [environments, setEnvironments] = useState([]);
   const [flows, setFlows] = useState([]);
-  const [form, setForm] = useState({ name: '', cron_expression: '', flow_id: '', environment_id: '' });
+  const [form, setForm] = useState({ name: '', cron_expression: '', flow_id: '', environment_id: '', duration_minutes: '' });
   const [formErrors, setFormErrors] = useState({});
   const [viewingSchedule, setViewingSchedule] = useState(null); // { schedule, runs }
   // Which run (in viewingSchedule.runs) is expanded, its fetched step detail,
@@ -138,30 +146,17 @@ export default function Schedules() {
       );
       if (!ok) return;
     }
-    await createSchedule({ ...form, flow_id: Number(form.flow_id), environment_id: Number(form.environment_id) });
+    await createSchedule({
+      ...form,
+      flow_id: Number(form.flow_id),
+      environment_id: Number(form.environment_id),
+      duration_minutes: form.duration_minutes ? Number(form.duration_minutes) : null,
+    });
     showToast(`Schedule "${form.name}" created successfully.`);
-    setForm({ name: '', cron_expression: '', flow_id: '', environment_id: '' });
+    setForm({ name: '', cron_expression: '', flow_id: '', environment_id: '', duration_minutes: '' });
     load();
   };
 
-  const handleDelete = async (id) => {
-    const schedule = schedules.find((s) => s.id === id);
-    const history = await getScheduleHistory(id).catch(() => null);
-    const totalRuns = history ? Number(history.total_runs) : 0;
-
-    let message = `Stop schedule "${schedule?.name}"?`;
-    if (totalRuns > 0) {
-      message += `\n\nThis schedule has run ${totalRuns} time${totalRuns === 1 ? '' : 's'}:`;
-      message += `\n  ✅ ${history.pass_count} pass · ❌ ${history.fail_count} fail · 🔥 ${history.error_count} error · ⚠️ ${history.drift_count} drift`;
-      message += `\n  Last run: ${new Date(history.last_run_at).toLocaleString()}`;
-      message += '\n\nThis only stops the schedule itself — its past run history stays in the Dashboard.';
-    }
-
-    if (await confirm(message)) {
-      await deleteSchedule(id);
-      load();
-    }
-  };
 
   return (
     <div>
@@ -172,25 +167,34 @@ export default function Schedules() {
 
       <div className="card">
         <h4>Create New Schedule</h4>
-        <div className="toolbar">
+        <div className="toolbar" style={{ flexWrap: 'nowrap' }}>
           <input
             placeholder="Schedule name"
             value={form.name}
             onChange={(e) => { setForm({ ...form, name: e.target.value }); setFormErrors({ ...formErrors, name: false }); }}
-            style={{ borderColor: formErrors.name ? 'var(--fail)' : undefined }}
+            style={{ flex: 1, minWidth: 0, borderColor: formErrors.name ? 'var(--fail)' : undefined }}
           />
           <select
             value={form.cron_expression}
             onChange={(e) => { setForm({ ...form, cron_expression: e.target.value }); setFormErrors({ ...formErrors, cron: false }); }}
-            style={{ borderColor: formErrors.cron ? 'var(--fail)' : undefined }}
+            style={{ flexShrink: 0, borderColor: formErrors.cron ? 'var(--fail)' : undefined }}
           >
             <option value="">Select Schedule</option>
             {CRON_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
           </select>
           <select
+            value={form.duration_minutes}
+            onChange={(e) => setForm({ ...form, duration_minutes: e.target.value })}
+            title="How long this schedule keeps running before it auto-stops itself — separate from how often it runs."
+            style={{ flexShrink: 0 }}
+          >
+            <option value="">Run forever</option>
+            {DURATION_PRESETS.map((p) => <option key={p.value} value={p.value}>Run for {p.label}</option>)}
+          </select>
+          <select
             value={form.flow_id}
             onChange={(e) => { setForm({ ...form, flow_id: e.target.value }); setFormErrors({ ...formErrors, flow: false }); }}
-            style={{ borderColor: formErrors.flow ? 'var(--fail)' : undefined }}
+            style={{ flexShrink: 0, width: 200, borderColor: formErrors.flow ? 'var(--fail)' : undefined }}
           >
             <option value="">Select Flow</option>
             {flows.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
@@ -198,14 +202,14 @@ export default function Schedules() {
           <select
             value={form.environment_id}
             onChange={(e) => { setForm({ ...form, environment_id: e.target.value }); setFormErrors({ ...formErrors, environment: false }); }}
-            style={{ borderColor: formErrors.environment ? 'var(--fail)' : undefined }}
+            style={{ flexShrink: 0, borderColor: formErrors.environment ? 'var(--fail)' : undefined }}
           >
             <option value="">Select Environment</option>
             {environments.map((env) => (
               <option key={env.id} value={env.id}>{env.name}{env.is_protected ? ' (protected)' : ''}</option>
             ))}
           </select>
-          <button className="btn-primary" onClick={handleCreate}>Create</button>
+          <button className="btn-primary" onClick={handleCreate} style={{ flexShrink: 0 }}>Create</button>
         </div>
       </div>
 
@@ -213,14 +217,13 @@ export default function Schedules() {
         <table>
           <thead>
             <tr>
-              <th style={{ width: 140 }}>Date Created</th>
-              <th style={{ width: 160 }}>Name</th>
-              <th style={{ width: 100 }}>Cron</th>
-              <th style={{ width: 140 }}>Flow</th>
-              <th style={{ width: 110 }}>Environment</th>
-              <th style={{ width: 150 }}>Last Run</th>
-              <th style={{ width: 150 }}>Runs</th>
-              <th style={{ width: 80 }}>Action</th>
+              <th style={{ width: '16%' }}>Date Created</th>
+              <th style={{ width: '18%' }}>Name</th>
+              <th style={{ width: '18%' }}>Flow</th>
+              <th style={{ width: '11%' }}>Env</th>
+              <th style={{ width: '16%' }}>Last Run</th>
+              <th style={{ width: '12%' }}>Runs</th>
+              <th style={{ width: '9%' }}>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -234,9 +237,7 @@ export default function Schedules() {
                 <td className="hint" style={{ whiteSpace: 'nowrap' }}>{formatDateTime(s.created_at)}</td>
                 <td title={s.name}>
                   <span className="truncate" style={{ maxWidth: '100%' }}>{s.name}</span>
-                  {s.deleted_at && <span className="badge fail" style={{ marginLeft: 6 }}>stopped</span>}
                 </td>
-                <td><code>{s.cron_expression}</code></td>
                 <td title={s.flow_name}><span className="truncate" style={{ maxWidth: '100%' }}>{s.flow_name}</span></td>
                 <td>
                   {s.environment_name}
@@ -257,22 +258,11 @@ export default function Schedules() {
                   )}
                 </td>
                 <td>
-                  {s.deleted_at ? (
-                    <span className="hint">—</span>
-                  ) : (
-                    <button
-                      className="btn-icon btn-danger"
-                      onClick={(e) => { e.stopPropagation(); handleDelete(s.id); }}
-                      title="Stop"
-                      aria-label="Stop"
-                    >
-                      <StopIcon />
-                    </button>
-                  )}
+                  <span className={`badge ${s.deleted_at ? 'fail' : 'pass'}`}>{s.deleted_at ? 'Stopped' : 'Active'}</span>
                 </td>
               </tr>
             ))}
-            {schedules.length === 0 && <tr><td colSpan={8} className="empty-state">No schedules yet.</td></tr>}
+            {schedules.length === 0 && <tr><td colSpan={7} className="empty-state">No schedules yet.</td></tr>}
           </tbody>
         </table>
       </div>

@@ -68,6 +68,7 @@ export const getSchedules = () => api.get('/schedules').then((r) => r.data);
 export const createSchedule = (data) => api.post('/schedules', data).then((r) => r.data);
 export const updateSchedule = (id, data) => api.put(`/schedules/${id}`, data).then((r) => r.data);
 export const deleteSchedule = (id) => api.delete(`/schedules/${id}`).then((r) => r.data);
+export const deleteScheduleForever = (id) => api.delete(`/schedules/${id}/permanent`).then((r) => r.data);
 export const getScheduleHistory = (id) => api.get(`/schedules/${id}/history`).then((r) => r.data);
 export const getScheduleRuns = (id, params) => api.get(`/schedules/${id}/runs`, { params }).then((r) => r.data);
 

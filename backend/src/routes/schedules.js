@@ -102,13 +102,15 @@ router.get('/:id/runs', catchAsync(async (req, res) => {
   res.json(runsResult.rows);
 }));
 
-// CREATE schedule
+// CREATE schedule — optional `duration_minutes` means "run for N minutes then
+// auto-stop"; a watchdog in scheduler.js checks auto_stop_at and stops the
+// schedule once it's reached. Omitted/falsy means it runs indefinitely.
 router.post('/', catchAsync(async (req, res) => {
-  const { name, cron_expression, flow_id, environment_id, is_active = true } = req.body;
+  const { name, cron_expression, flow_id, environment_id, is_active = true, duration_minutes } = req.body;
   const result = await pool.query(
-    `INSERT INTO schedules (name, cron_expression, flow_id, environment_id, is_active)
-     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-    [name, cron_expression, flow_id, environment_id, is_active]
+    `INSERT INTO schedules (name, cron_expression, flow_id, environment_id, is_active, auto_stop_at)
+     VALUES ($1,$2,$3,$4,$5, CASE WHEN $6::int IS NOT NULL THEN NOW() + make_interval(mins => $6::int) END) RETURNING *`,
+    [name, cron_expression, flow_id, environment_id, is_active, duration_minutes || null]
   );
   refreshSchedule(result.rows[0]);
   res.status(201).json(result.rows[0]);
@@ -131,6 +133,20 @@ router.put('/:id', catchAsync(async (req, res) => {
 router.delete('/:id', catchAsync(async (req, res) => {
   stopSchedule(Number(req.params.id));
   await pool.query('UPDATE schedules SET is_active = false, deleted_at = NOW() WHERE id=$1', [req.params.id]);
+  res.status(204).send();
+}));
+
+// Hard-delete: only for a schedule that's already stopped (deleted_at set) —
+// actually removes the row so the list doesn't accumulate dead entries
+// forever. Its past flow_runs aren't touched (schedule_id isn't a foreign
+// key), so run history still shows in the Dashboard even after this.
+router.delete('/:id/permanent', catchAsync(async (req, res) => {
+  const result = await pool.query('SELECT deleted_at FROM schedules WHERE id=$1', [req.params.id]);
+  const schedule = result.rows[0];
+  if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+  if (!schedule.deleted_at) return res.status(400).json({ error: 'Stop the schedule before deleting it permanently.' });
+
+  await pool.query('DELETE FROM schedules WHERE id=$1', [req.params.id]);
   res.status(204).send();
 }));
 

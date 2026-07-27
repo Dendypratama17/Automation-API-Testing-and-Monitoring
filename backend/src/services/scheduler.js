@@ -41,6 +41,26 @@ function scheduleTask(schedule) {
   console.log(`[scheduler] Registered "${schedule.name}" with cron "${schedule.cron_expression}"`);
 }
 
+// Schedules created with a "run for N minutes" duration carry an
+// auto_stop_at cutoff — node-cron itself has no concept of "run until a
+// point in time", so a separate watchdog checks for expired ones and stops
+// them the same way the manual Stop action does. Runs independently of each
+// schedule's own cron interval so a long interval (e.g. hourly) with a short
+// duration (e.g. 5 minutes) still stops on time instead of waiting for its
+// next tick.
+const AUTO_STOP_CHECK_INTERVAL_MS = 15000;
+
+async function checkAutoStops() {
+  const result = await pool.query(
+    `SELECT id, name FROM schedules WHERE is_active = TRUE AND auto_stop_at IS NOT NULL AND auto_stop_at <= NOW()`
+  );
+  for (const schedule of result.rows) {
+    console.log(`[scheduler] Schedule "${schedule.name}" (id=${schedule.id}) reached its auto-stop time.`);
+    await pool.query('UPDATE schedules SET is_active = false, deleted_at = NOW() WHERE id=$1', [schedule.id]);
+    stopSchedule(schedule.id);
+  }
+}
+
 /**
  * Load all active schedules from DB and register cron tasks.
  * Call once at server startup.
@@ -51,6 +71,7 @@ async function initScheduler() {
     scheduleTask(schedule);
   }
   console.log(`[scheduler] Initialized with ${result.rows.length} active schedule(s)`);
+  setInterval(() => { checkAutoStops().catch((err) => console.error('[scheduler] auto-stop check failed:', err.message)); }, AUTO_STOP_CHECK_INTERVAL_MS);
 }
 
 /**
