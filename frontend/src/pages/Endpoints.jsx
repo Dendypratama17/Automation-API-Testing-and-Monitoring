@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   getFolders, createFolder, updateFolder, deleteFolder,
-  getEndpoints, updateEndpoint, deleteEndpoint, reorderEndpoints,
+  getEndpoints, updateEndpoint, deleteEndpoint, duplicateEndpoint, reorderEndpoints,
 } from '../api/client';
 import KeyValueEditor, { objectToRows, rowsToObject } from '../components/KeyValueEditor.jsx';
 import FormDataEditor, { objectToFormRows, formRowsToObject } from '../components/FormDataEditor.jsx';
@@ -9,6 +9,7 @@ import Environments from './Environments.jsx';
 import Authorization from './Authorization.jsx';
 import DefaultHeaders from './DefaultHeaders.jsx';
 import TestFiles from './TestFiles.jsx';
+import Notifications from './Notifications.jsx';
 import FolderTree from '../components/FolderTree.jsx';
 import JsonBlock from '../components/JsonBlock.jsx';
 
@@ -17,7 +18,7 @@ import JsonBlock from '../components/JsonBlock.jsx';
 function resourcePath(template) {
   return template.replace(/^\{\{base_url\}\}/, '') || '/';
 }
-import { TrashIcon, EditIcon, GripIcon, FolderIcon } from '../components/icons.jsx';
+import { TrashIcon, EditIcon, GripIcon, FolderIcon, CopyIcon } from '../components/icons.jsx';
 import OptionsMenu from '../components/OptionsMenu.jsx';
 import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
@@ -38,7 +39,7 @@ function endpointToForm(ep) {
 
 export default function Endpoints() {
   const confirm = useConfirm();
-  const [tab, setTab] = useState('endpoints'); // 'endpoints' | 'environments' | 'authorization'
+  const [tab, setTab] = useState('endpoints'); // 'endpoints' | 'environments' | 'authorization' | 'default-headers' | 'test-files' | 'notifications'
   const [folders, setFolders] = useState([]);
   const [selectedFolderId, setSelectedFolderId] = useState('all'); // 'all' | 'null' | number
   const [endpoints, setEndpoints] = useState([]);
@@ -157,6 +158,11 @@ export default function Endpoints() {
     }
   };
 
+  const handleDuplicate = async (id) => {
+    await duplicateEndpoint(id);
+    refreshList();
+  };
+
   // Moves an endpoint into a different folder from the list's Options menu —
   // reuses the row's already-loaded fields (GET /endpoints returns everything
   // PUT needs) so this doesn't require a separate fetch first.
@@ -212,6 +218,7 @@ export default function Endpoints() {
         <button className={tab === 'authorization' ? 'btn-primary' : ''} onClick={() => setTab('authorization')}>Authorization</button>
         <button className={tab === 'default-headers' ? 'btn-primary' : ''} onClick={() => setTab('default-headers')}>Default Headers</button>
         <button className={tab === 'test-files' ? 'btn-primary' : ''} onClick={() => setTab('test-files')}>Test Files</button>
+        <button className={tab === 'notifications' ? 'btn-primary' : ''} onClick={() => setTab('notifications')}>Notifications</button>
       </div>
 
       {tab === 'environments' ? (
@@ -222,6 +229,8 @@ export default function Endpoints() {
         <DefaultHeaders />
       ) : tab === 'test-files' ? (
         <TestFiles />
+      ) : tab === 'notifications' ? (
+        <Notifications />
       ) : (
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
         <div className="card" style={{ width: 240, flexShrink: 0 }}>
@@ -279,6 +288,7 @@ export default function Endpoints() {
                       <OptionsMenu
                         items={[
                           { label: 'Edit', icon: <EditIcon />, onClick: () => openEndpoint(ep) },
+                          { label: 'Duplicate', icon: <CopyIcon />, onClick: () => handleDuplicate(ep.id) },
                           {
                             label: 'Move to Folder',
                             icon: <FolderIcon />,

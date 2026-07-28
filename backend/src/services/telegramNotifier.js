@@ -224,11 +224,18 @@ async function notifyFlowIfNeeded(flowRun, previousStatus = null) {
   }
 
   let logStatus = 'sent';
-  try {
-    await sendTelegramMessage(message);
-  } catch (err) {
-    logStatus = 'failed';
-    console.error('[telegramNotifier] failed to send:', err.message);
+  const settingRow = await pool.query(`SELECT value FROM settings WHERE key='telegram_notifications_enabled'`);
+  // Missing row = default (enabled) — see DEFAULTS in routes/settings.js.
+  const enabled = settingRow.rows[0] ? settingRow.rows[0].value === true : true;
+  if (!enabled) {
+    logStatus = 'skipped';
+  } else {
+    try {
+      await sendTelegramMessage(message);
+    } catch (err) {
+      logStatus = 'failed';
+      console.error('[telegramNotifier] failed to send:', err.message);
+    }
   }
 
   await pool.query(

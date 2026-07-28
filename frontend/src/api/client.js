@@ -13,6 +13,7 @@ export const importDotenv = (data) => api.post('/environments/import/dotenv', da
 export const getEndpoints = (params) => api.get('/endpoints', { params }).then((r) => r.data);
 export const updateEndpoint = (id, data) => api.put(`/endpoints/${id}`, data).then((r) => r.data);
 export const deleteEndpoint = (id) => api.delete(`/endpoints/${id}`).then((r) => r.data);
+export const duplicateEndpoint = (id) => api.post(`/endpoints/${id}/duplicate`).then((r) => r.data);
 export const reorderEndpoints = (ids) => api.put('/endpoints/reorder', { ids }).then((r) => r.data);
 export const importFromCurl = (data) => api.post('/endpoints/from-curl', data).then((r) => r.data);
 export const importPostmanCollection = (data) => api.post('/endpoints/import/postman-collection', data).then((r) => r.data);
@@ -73,5 +74,8 @@ export const deleteSchedule = (id) => api.delete(`/schedules/${id}`).then((r) =>
 export const deleteScheduleForever = (id) => api.delete(`/schedules/${id}/permanent`).then((r) => r.data);
 export const getScheduleHistory = (id) => api.get(`/schedules/${id}/history`).then((r) => r.data);
 export const getScheduleRuns = (id, params) => api.get(`/schedules/${id}/runs`, { params }).then((r) => r.data);
+
+export const getSettings = () => api.get('/settings').then((r) => r.data);
+export const updateSetting = (key, value) => api.put(`/settings/${key}`, { value }).then((r) => r.data);
 
 export default api;

@@ -6,6 +6,7 @@ import { getEndpointDetail, getEndpointTrend, getAlerts, getLastRuns, getLastFlo
 import JsonBlock from '../components/JsonBlock.jsx';
 import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
+import { exportRunResultToPdf } from '../utils/exportRunResultPdf.js';
 
 // A generic, commonly-used API response-time guideline — not tied to any
 // specific assertion, just a visual reference line on the aggregate chart so
@@ -121,12 +122,23 @@ function HitRow({ row, selectedRowId, onSelect }) {
 // Full detail for one selected hit — rendered right below whichever table
 // (Recent Hits or Recent Alerts) the row was clicked from, so it never
 // appears to "do nothing" when clicked from the lower table.
-function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, stepHeaders, trend, closeDetail, detailRef }) {
+function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, runInfo, stepHeaders, trend, closeDetail, detailRef }) {
+  const handleExport = () => {
+    exportRunResultToPdf({
+      flow_run: { id: runInfo?.id ?? selectedRow.flow_run_id, status: runInfo?.status ?? selectedRow.status, created_at: runInfo?.created_at ?? selectedRow.created_at },
+      flow_name: runInfo?.flow_name || selectedRow.flow_name,
+      steps: runSteps.length > 0 ? runSteps : [selectedRow],
+    });
+  };
+
   return (
     <div className="card" ref={detailRef}>
       <div className="card-row">
         <h4 style={{ margin: 0 }}>{detail.endpoint.method} {detail.endpoint.name}</h4>
-        <button className="btn-quiet" onClick={closeDetail}>✕ Close</button>
+        <div className="toolbar">
+          <button onClick={handleExport}>Export PDF</button>
+          <button className="btn-quiet" onClick={closeDetail}>✕ Close</button>
+        </div>
       </div>
 
       <div style={{ marginTop: 16 }}>
@@ -212,7 +224,7 @@ function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, stepHea
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 18 }}>
         <div className="stack" style={{ minWidth: 0 }}>
           <div>
-            <span className="field-label">Request Headers</span>
+            <span className="field-label">Headers</span>
             <JsonBlock value={stepHeaders ?? detail.endpoint.headers} />
           </div>
           <div>
@@ -276,6 +288,10 @@ export default function Dashboard() {
   const [detail, setDetail] = useState(null);
   const [trend, setTrend] = useState([]);
   const [runSteps, setRunSteps] = useState([]);
+  // Just the flow_run envelope (id/status/created_at/flow_name) from the
+  // same getFlowRun call that populates runSteps — kept separately so
+  // exporting the run to PDF doesn't need a second fetch.
+  const [runInfo, setRunInfo] = useState(null);
   const [stepHeaders, setStepHeaders] = useState(null);
   const detailRef = useRef(null);
 
@@ -354,9 +370,13 @@ export default function Dashboard() {
   // Upload then Share) — a flow run's steps show as separate rows in the
   // tables above, so this ties the selected one back to its siblings.
   useEffect(() => {
-    if (!selectedRow?.flow_run_id) { setRunSteps([]); return; }
+    if (!selectedRow?.flow_run_id) { setRunSteps([]); setRunInfo(null); return; }
     let cancelled = false;
-    getFlowRun(selectedRow.flow_run_id).then((run) => { if (!cancelled) setRunSteps(run.steps || []); }).catch(() => { if (!cancelled) setRunSteps([]); });
+    getFlowRun(selectedRow.flow_run_id).then((run) => {
+      if (cancelled) return;
+      setRunSteps(run.steps || []);
+      setRunInfo({ id: run.id, status: run.status, created_at: run.created_at, flow_name: run.flow_name });
+    }).catch(() => { if (!cancelled) { setRunSteps([]); setRunInfo(null); } });
     return () => { cancelled = true; };
   }, [selectedRow]);
 
@@ -526,7 +546,7 @@ export default function Dashboard() {
       {detail && selectedRow && selectedFrom === 'hits' && (
         <HitDetailPanel
           detail={detail} selectedRow={selectedRow} setSelectedRow={setSelectedRow}
-          runSteps={runSteps} stepHeaders={stepHeaders} trend={trend} closeDetail={closeDetail} detailRef={detailRef}
+          runSteps={runSteps} runInfo={runInfo} stepHeaders={stepHeaders} trend={trend} closeDetail={closeDetail} detailRef={detailRef}
         />
       )}
 
@@ -564,7 +584,7 @@ export default function Dashboard() {
       {detail && selectedRow && selectedFrom === 'alerts' && (
         <HitDetailPanel
           detail={detail} selectedRow={selectedRow} setSelectedRow={setSelectedRow}
-          runSteps={runSteps} stepHeaders={stepHeaders} trend={trend} closeDetail={closeDetail} detailRef={detailRef}
+          runSteps={runSteps} runInfo={runInfo} stepHeaders={stepHeaders} trend={trend} closeDetail={closeDetail} detailRef={detailRef}
         />
       )}
 

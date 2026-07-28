@@ -211,4 +211,33 @@ router.delete('/:id', catchAsync(async (req, res) => {
   res.status(204).send();
 }));
 
+// DUPLICATE endpoint: copies it (name suffixed " (Copy)") into the same
+// folder, at the end of the list — speeds up building a variant of an
+// existing endpoint instead of re-entering the whole request from scratch.
+router.post('/:id/duplicate', catchAsync(async (req, res) => {
+  const originalResult = await pool.query('SELECT * FROM endpoints WHERE id=$1', [req.params.id]);
+  const original = originalResult.rows[0];
+  if (!original) return res.status(404).json({ error: 'Endpoint not found' });
+
+  const nextSortOrderResult = await pool.query('SELECT COALESCE(MAX(sort_order), -1) + 1 as next FROM endpoints');
+  const nextSortOrder = nextSortOrderResult.rows[0].next;
+
+  const result = await pool.query(
+    `INSERT INTO endpoints (folder_id, name, method, path_template, headers, body_template, body_type, tags, sort_order)
+     VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9) RETURNING *`,
+    [
+      original.folder_id,
+      `${original.name} (Copy)`,
+      original.method,
+      original.path_template,
+      JSON.stringify(original.headers),
+      JSON.stringify(original.body_template),
+      original.body_type,
+      original.tags,
+      nextSortOrder,
+    ]
+  );
+  res.status(201).json(result.rows[0]);
+}));
+
 module.exports = router;

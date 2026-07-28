@@ -12,6 +12,7 @@ const flowRunsRouter = require('./routes/flowRuns');
 const authCredentialsRouter = require('./routes/authCredentials');
 const defaultHeadersRouter = require('./routes/defaultHeaders');
 const testFilesRouter = require('./routes/testFiles');
+const settingsRouter = require('./routes/settings');
 const { initScheduler } = require('./services/scheduler');
 
 const app = express();
@@ -30,6 +31,7 @@ app.use('/api/flow-runs', flowRunsRouter);
 app.use('/api/auth-credentials', authCredentialsRouter);
 app.use('/api/default-headers', defaultHeadersRouter);
 app.use('/api/test-files', testFilesRouter);
+app.use('/api/settings', settingsRouter);
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 

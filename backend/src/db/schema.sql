@@ -211,6 +211,16 @@ CREATE TABLE IF NOT EXISTS notifications_log (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Generic app-wide key/value settings (e.g. Config > Notifications' Telegram
+-- on/off toggle) — a missing key means "use the default" (see wherever a
+-- setting is read), so this table only ever needs a row once someone
+-- actually changes something away from its default.
+CREATE TABLE IF NOT EXISTS settings (
+  key VARCHAR(100) PRIMARY KEY,
+  value JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Reusable test files (base64) for form-data "file" fields in Flow steps —
 -- pick a saved one (e.g. "Normal PDF", "Corrupt File", "Wrong Format") instead
 -- of using the browser's file picker every time a step needs an upload.
