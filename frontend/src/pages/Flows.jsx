@@ -180,6 +180,30 @@ function StepResultRow({ step, isLast }) {
         </div>
       )}
 
+      {(step.request_headers != null || step.response_headers != null) && (
+        <details style={{ marginTop: 10 }}>
+          <summary className="field-label"><ChevronIcon className="chevron" />Headers</summary>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 8 }}>
+            <div style={{ minWidth: 0 }}>
+              {step.request_headers != null && (
+                <>
+                  <span className="field-label">Request Headers</span>
+                  <JsonBlock value={step.request_headers} />
+                </>
+              )}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              {step.response_headers != null && (
+                <>
+                  <span className="field-label">Response Headers</span>
+                  <JsonBlock value={step.response_headers} />
+                </>
+              )}
+            </div>
+          </div>
+        </details>
+      )}
+
       {(step.request_body != null || step.response_body != null) && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 14 }}>
           <div style={{ minWidth: 0 }}>
@@ -367,11 +391,7 @@ export default function Flows() {
     loadFolders();
     getEndpoints().then(setEndpoints);
     getFolders('endpoint').then(setEndpointFolders);
-    getEnvironments().then((envs) => {
-      setEnvironments(envs);
-      const stag = envs.find((e) => e.name.toLowerCase() === 'stag');
-      if (stag) setSelectedEnv(stag.id);
-    });
+    getEnvironments().then(setEnvironments);
     getAuthCredentials().then(setAuthCredentials);
     getDefaultHeaders().then(setDefaultHeaders);
   }, []);
@@ -871,6 +891,7 @@ export default function Flows() {
                   onChange={(e) => { setSelectedEnv(e.target.value ? Number(e.target.value) : null); setEnvError(false); }}
                   style={{ borderColor: envError ? 'var(--fail)' : undefined }}
                 >
+                  <option value="">Select Environment</option>
                   {environments.map((env) => (
                     <option key={env.id} value={env.id}>{env.name}{env.is_protected ? ' (protected)' : ''}</option>
                   ))}

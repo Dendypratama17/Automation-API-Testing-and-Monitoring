@@ -110,12 +110,14 @@ async function runFlowAndPersist(flow, steps, environment, triggeredBy, schedule
   for (const step of execution.steps) {
     await pool.query(
       `INSERT INTO flow_run_steps
-        (flow_run_id, endpoint_id, step_order, name, status, request_method, request_url, request_id, request_body, response_status_code, response_time_ms, response_body, error_message, assertion_results, extracted_variables, schema_diffs)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12::jsonb,$13,$14::jsonb,$15::jsonb,$16::jsonb)`,
+        (flow_run_id, endpoint_id, step_order, name, status, request_method, request_url, request_id, request_body, request_headers, response_status_code, response_time_ms, response_body, response_headers, error_message, assertion_results, extracted_variables, schema_diffs)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13::jsonb,$14::jsonb,$15,$16::jsonb,$17::jsonb,$18::jsonb)`,
       [
         flowRun.id, step.endpoint_id, step.step_order, step.name, step.status, step.request_method, step.request_url,
         step.request_id ?? null, JSON.stringify(sanitizeBodyForStorage(step.request_body ?? null)),
+        JSON.stringify(step.request_headers ?? null),
         step.response_status_code, step.response_time_ms, JSON.stringify(step.response_body ?? null),
+        JSON.stringify(step.response_headers ?? null),
         step.error_message, JSON.stringify(step.assertion_results ?? null), JSON.stringify(step.extracted_variables || {}), JSON.stringify(step.schema_diffs || []),
       ]
     );

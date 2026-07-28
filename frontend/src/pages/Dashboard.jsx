@@ -136,6 +136,7 @@ function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, stepHea
           <span style={{ fontSize: 13 }}>Flow: <b>{selectedRow.flow_name}</b></span>
         </div>
         <div className="hint" style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12.5, marginTop: 10 }}>
+          <span className="mono">Flow ID: {selectedRow.flow_run_id}</span>
           {selectedRow.base_url && <span>Base URL: {selectedRow.base_url}</span>}
           <span>Env: {selectedRow.environment_name}</span>
           <span>Status: {selectedRow.response_status_code ?? '-'}</span>
@@ -281,7 +282,12 @@ export default function Dashboard() {
   const [rangePreset, setRangePreset] = useState('7d');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
-  const [envFilter, setEnvFilter] = useState('Stag');
+  // Remembers whichever environment was last picked (across reloads and
+  // navigating away/back) instead of always resetting to "Stag".
+  const [envFilter, setEnvFilter] = useState(() => localStorage.getItem('dashboard_env_filter') || 'Stag');
+  useEffect(() => {
+    localStorage.setItem('dashboard_env_filter', envFilter);
+  }, [envFilter]);
   const [resourceFilter, setResourceFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   // Independent of the range/rangePreset filter above — always "today so
@@ -450,17 +456,17 @@ export default function Dashboard() {
           <select value={envFilter} onChange={(e) => setEnvFilter(e.target.value)}>
             {environments.map((env) => <option key={env.id} value={env.name}>{env.name}</option>)}
           </select>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="all">All Statuses</option>
+            <option value="ok">OK</option>
+            <option value="error">Error</option>
+          </select>
           <input
             placeholder="Search ID, resource, or flow..."
             value={resourceFilter}
             onChange={(e) => setResourceFilter(e.target.value)}
             style={{ width: 210 }}
           />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="all">All Statuses</option>
-            <option value="ok">OK</option>
-            <option value="error">Error</option>
-          </select>
         </div>
       </div>
 

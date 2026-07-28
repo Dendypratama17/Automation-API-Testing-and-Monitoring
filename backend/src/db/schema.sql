@@ -148,9 +148,11 @@ CREATE TABLE IF NOT EXISTS flow_run_steps (
   request_url TEXT,
   request_id TEXT,
   request_body JSONB,
+  request_headers JSONB,
   response_status_code INT,
   response_time_ms INT,
   response_body JSONB,
+  response_headers JSONB,
   error_message TEXT,
   assertion_results JSONB,
   extracted_variables JSONB,
@@ -160,6 +162,12 @@ CREATE TABLE IF NOT EXISTS flow_run_steps (
 
 CREATE INDEX IF NOT EXISTS idx_flow_run_steps_run ON flow_run_steps(flow_run_id, step_order);
 CREATE INDEX IF NOT EXISTS idx_flow_run_steps_endpoint ON flow_run_steps(endpoint_id, created_at);
+
+-- Actually-sent request headers and the raw response headers, captured per
+-- step run — added after the initial table so existing databases need this
+-- backfilled via ALTER (fresh installs get it from the CREATE TABLE above).
+ALTER TABLE flow_run_steps ADD COLUMN IF NOT EXISTS request_headers JSONB;
+ALTER TABLE flow_run_steps ADD COLUMN IF NOT EXISTS response_headers JSONB;
 
 CREATE TABLE IF NOT EXISTS schedules (
   id SERIAL PRIMARY KEY,

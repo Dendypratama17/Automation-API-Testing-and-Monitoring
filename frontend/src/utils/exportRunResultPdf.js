@@ -104,6 +104,8 @@ export function exportRunResultToPdf(runResult) {
     addText(label, { size: 9.5, style: 'bold', color: MUTED, gapBefore: 10 });
     const innerWidth = maxWidth - 16;
     const lineGap = 10.5;
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(8);
     const lines = doc.splitTextToSize(text, innerWidth);
     let i = 0;
     while (i < lines.length) {

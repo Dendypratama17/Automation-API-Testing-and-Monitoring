@@ -7,6 +7,9 @@ import { useToast } from '../components/ToastProvider.jsx';
 import JsonBlock from '../components/JsonBlock.jsx';
 import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
+import { DownloadIcon, ChevronIcon } from '../components/icons.jsx';
+import { exportRunResultToPdf } from '../utils/exportRunResultPdf.js';
+import { exportScheduleSummaryToPdf } from '../utils/exportScheduleSummaryPdf.js';
 
 const CRON_PRESETS = [
   { label: 'Every 30 seconds', value: '*/30 * * * * *' },
@@ -95,15 +98,13 @@ export default function Schedules() {
   const [expandedRunDetail, setExpandedRunDetail] = useState(null);
   const [expandingRunId, setExpandingRunId] = useState(null);
   const [selectedStepIdx, setSelectedStepIdx] = useState(0);
+  const [exportingRunId, setExportingRunId] = useState(null);
+  const [exportingSummary, setExportingSummary] = useState(false);
 
   const load = () => getSchedules().then(setSchedules);
   useEffect(() => {
     load();
-    getEnvironments().then((envs) => {
-      setEnvironments(envs);
-      const stag = envs.find((e) => e.name.toLowerCase() === 'stag');
-      if (stag) setForm((f) => ({ ...f, environment_id: String(stag.id) }));
-    });
+    getEnvironments().then(setEnvironments);
     getFlows().then(setFlows);
   }, []);
 
@@ -154,6 +155,43 @@ export default function Schedules() {
       setExpandedRunDetail({ steps: [] });
     } finally {
       setExpandingRunId(null);
+    }
+  };
+
+  const handleExportRun = async (e, run) => {
+    e.stopPropagation();
+    if (exportingRunId) return;
+    setExportingRunId(run.id);
+    try {
+      // Reuse the already-fetched detail if this row happens to be expanded
+      // — avoids a redundant request/response body fetch.
+      const detail = expandedRunId === run.id && expandedRunDetail
+        ? expandedRunDetail
+        : await getFlowRun(run.id);
+      exportRunResultToPdf({
+        flow_run: { id: detail.id, status: detail.status, created_at: detail.created_at },
+        flow_name: detail.flow_name || viewingSchedule.schedule.flow_name,
+        steps: detail.steps,
+      });
+    } catch {
+      showToast('Failed to export run — please try again.');
+    } finally {
+      setExportingRunId(null);
+    }
+  };
+
+  const handleExportScheduleSummary = async () => {
+    if (exportingSummary || !viewingSchedule.runs.length) return;
+    setExportingSummary(true);
+    try {
+      const details = await Promise.all(
+        viewingSchedule.runs.map((r) => (expandedRunId === r.id && expandedRunDetail ? expandedRunDetail : getFlowRun(r.id)))
+      );
+      exportScheduleSummaryToPdf(viewingSchedule.schedule, details);
+    } catch {
+      showToast('Failed to export schedule summary — please try again.');
+    } finally {
+      setExportingSummary(false);
     }
   };
 
@@ -305,7 +343,12 @@ export default function Schedules() {
         <div className="card">
           <div className="card-row">
             <h4 style={{ margin: 0 }}>Run History: {viewingSchedule.schedule.name}</h4>
-            <button className="btn-quiet" onClick={() => setViewingSchedule(null)}>✕ Close</button>
+            <div className="toolbar">
+              <button onClick={handleExportScheduleSummary} disabled={exportingSummary || viewingSchedule.runs.length === 0}>
+                {exportingSummary ? 'Exporting…' : 'Export Summary'}
+              </button>
+              <button className="btn-quiet" onClick={() => setViewingSchedule(null)}>✕ Close</button>
+            </div>
           </div>
 
           {!currentViewedSchedule?.deleted_at && (
@@ -325,6 +368,7 @@ export default function Schedules() {
                   <th style={{ width: 90 }}>Result</th>
                   <th style={{ width: 110 }}>Steps</th>
                   <th style={{ width: 90 }}>Duration</th>
+                  <th style={{ width: 60 }}>Export</th>
                 </tr>
               </thead>
               <tbody>
@@ -340,10 +384,21 @@ export default function Schedules() {
                     <td><span className={`badge ${r.status.toLowerCase()}`}>{r.status}</span></td>
                     <td className="hint">{r.pass_count}/{r.step_count} passed</td>
                     <td className="mono">{r.total_duration_ms != null ? `${r.total_duration_ms}ms` : '-'}</td>
+                    <td className="row-actions">
+                      <button
+                        className="btn-icon"
+                        onClick={(e) => handleExportRun(e, r)}
+                        disabled={exportingRunId === r.id}
+                        title="Export as PDF"
+                        aria-label="Export as PDF"
+                      >
+                        {exportingRunId === r.id ? <span className="spinner" /> : <DownloadIcon />}
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {viewingSchedule.runs.length === 0 && (
-                  <tr><td colSpan={6} className="empty-state">No runs yet.</td></tr>
+                  <tr><td colSpan={7} className="empty-state">No runs yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -422,6 +477,30 @@ export default function Schedules() {
                           >
                             {failureReasons.map((reason, i) => <div key={i}>{reason}</div>)}
                           </div>
+                        )}
+
+                        {(step.request_headers != null || step.response_headers != null) && (
+                          <details style={{ marginTop: 10 }}>
+                            <summary className="field-label"><ChevronIcon className="chevron" />Headers</summary>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 8 }}>
+                              <div style={{ minWidth: 0 }}>
+                                {step.request_headers != null && (
+                                  <>
+                                    <span className="field-label">Request Headers</span>
+                                    <JsonBlock value={step.request_headers} />
+                                  </>
+                                )}
+                              </div>
+                              <div style={{ minWidth: 0 }}>
+                                {step.response_headers != null && (
+                                  <>
+                                    <span className="field-label">Response Headers</span>
+                                    <JsonBlock value={step.response_headers} />
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </details>
                         )}
 
                         {(step.request_body != null || step.response_body != null) && (

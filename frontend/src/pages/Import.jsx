@@ -1,16 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import {
   importFromCurl, importPostmanCollection, importPostmanEnv, importDotenv, getFolders,
+  createFolder, updateFolder, deleteFolder,
 } from '../api/client';
 import FilePicker from '../components/FilePicker.jsx';
+import FolderTree from '../components/FolderTree.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
+import { useConfirm } from '../components/ConfirmProvider.jsx';
+import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
 
 export default function Import() {
   const showToast = useToast();
+  const confirm = useConfirm();
   const [folders, setFolders] = useState([]);
+  const [showFolderManager, setShowFolderManager] = useState(false);
 
   const [curl, setCurl] = useState('');
   const [curlName, setCurlName] = useState('');
+  const [curlNameError, setCurlNameError] = useState(false);
   const [curlFolderId, setCurlFolderId] = useState('');
   const [curlResult, setCurlResult] = useState(null);
   const [curlLoading, setCurlLoading] = useState(false);
@@ -29,12 +36,16 @@ export default function Import() {
   }, []);
 
   const handleImportCurl = async () => {
+    if (!curlName.trim()) {
+      setCurlNameError(true);
+      return;
+    }
     setCurlLoading(true);
     setCurlError('');
     try {
       const data = await importFromCurl({
         curl,
-        name: curlName || undefined,
+        name: curlName,
         folder_id: curlFolderId ? Number(curlFolderId) : null,
       });
       setCurlResult(data);
@@ -43,6 +54,25 @@ export default function Import() {
       setCurlError(err.response?.data?.error || err.message);
     } finally {
       setCurlLoading(false);
+    }
+  };
+
+  const handleCreateFolder = async (name, parentId) => {
+    await createFolder({ kind: 'endpoint', name, parent_id: parentId });
+    getFolders('endpoint').then(setFolders);
+  };
+
+  const handleRenameFolder = async (id, name) => {
+    const folder = folders.find((f) => f.id === id);
+    await updateFolder(id, { name, parent_id: folder?.parent_id ?? null });
+    getFolders('endpoint').then(setFolders);
+  };
+
+  const handleDeleteFolder = async (id) => {
+    if (await confirm('Delete this folder? Endpoints inside it become uncategorized.')) {
+      await deleteFolder(id);
+      getFolders('endpoint').then(setFolders);
+      if (Number(curlFolderId) === id) setCurlFolderId('');
     }
   };
 
@@ -94,15 +124,16 @@ export default function Import() {
         <h4>Import from cURL</h4>
         <div className="toolbar" style={{ marginBottom: 8 }}>
           <input
-            placeholder="Endpoint name (optional)"
+            placeholder="Endpoint name"
             value={curlName}
-            onChange={(e) => setCurlName(e.target.value)}
-            style={{ flex: 1 }}
+            onChange={(e) => { setCurlName(e.target.value); if (e.target.value.trim()) setCurlNameError(false); }}
+            style={{ flex: 1, borderColor: curlNameError ? 'var(--fail)' : undefined }}
           />
           <select value={curlFolderId} onChange={(e) => setCurlFolderId(e.target.value)}>
             <option value="">No Folder</option>
-            {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+            {flattenFolders(folders).map((f) => <option key={f.id} value={f.id}>{folderOptionLabel(f)}</option>)}
           </select>
+          <button onClick={() => setShowFolderManager(true)} title="Manage folders">Manage Folders</button>
         </div>
         <textarea
           placeholder="Paste curl command here..."
@@ -178,6 +209,27 @@ export default function Import() {
           <button className="btn-primary" onClick={handleDotenvImport} disabled={!dotenvName || !dotenvText}>Import</button>
         </div>
       </div>
+
+      {showFolderManager && (
+        <div className="modal-overlay" onClick={() => setShowFolderManager(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 360, width: '100%' }}>
+            <div className="card-row" style={{ marginBottom: 12 }}>
+              <h4 style={{ margin: 0 }}>Manage Folders</h4>
+              <button className="btn-quiet" onClick={() => setShowFolderManager(false)}>✕ Close</button>
+            </div>
+            <FolderTree
+              folders={folders}
+              selectedFolderId={curlFolderId ? Number(curlFolderId) : 'null'}
+              onSelect={(id) => setCurlFolderId(id === 'null' || id === 'all' ? '' : String(id))}
+              onCreateFolder={handleCreateFolder}
+              onDeleteFolder={handleDeleteFolder}
+              onRenameFolder={handleRenameFolder}
+              allLabel="All"
+              noneLabel="No Folder"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
