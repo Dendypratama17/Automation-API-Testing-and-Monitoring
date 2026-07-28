@@ -23,11 +23,13 @@ async function executeSchedule(schedule) {
     if (!flow) throw new Error(`Flow ${schedule.flow_id} not found`);
 
     const stepsResult = await pool.query('SELECT * FROM flow_steps WHERE flow_id=$1 ORDER BY step_order', [flow.id]);
+    const stepsToRun = stepsResult.rows.filter((s) => s.enabled !== false);
     const envResult = await pool.query('SELECT * FROM environments WHERE id=$1', [schedule.environment_id]);
     const environment = envResult.rows[0];
     if (!environment) throw new Error(`Environment ${schedule.environment_id} not found`);
+    if (stepsToRun.length === 0) throw new Error(`Flow ${flow.id} has no enabled steps`);
 
-    await runFlowAndPersist(flow, stepsResult.rows, environment, 'scheduler', schedule.id);
+    await runFlowAndPersist(flow, stepsToRun, environment, 'scheduler', schedule.id);
     await pool.query('UPDATE schedules SET last_run_at = NOW() WHERE id = $1', [schedule.id]);
   } catch (err) {
     console.error(`[scheduler] Schedule "${schedule.name}" failed:`, err.message);

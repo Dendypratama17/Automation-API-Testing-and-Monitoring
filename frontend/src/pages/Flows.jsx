@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   getFolders, createFolder, updateFolder, deleteFolder,
   getFlows, getFlow, createFlow, updateFlow, deleteFlow, duplicateFlow, reorderFlows,
-  runFlow, batchRunFlows, runFlowStep, getEndpoints, getEnvironments, getAuthCredentials, getDefaultHeaders,
+  runFlow, batchRunFlows, runFlowStep, updateFlowStep, updateAllFlowSteps, getEndpoints, getEnvironments, getAuthCredentials, getDefaultHeaders,
 } from '../api/client';
 import JsonBlock from '../components/JsonBlock.jsx';
 import KeyValueEditor, { objectToRows, rowsToObject } from '../components/KeyValueEditor.jsx';
@@ -180,26 +180,11 @@ function StepResultRow({ step, isLast }) {
         </div>
       )}
 
-      {(step.request_headers != null || step.response_headers != null) && (
+      {step.request_headers != null && (
         <details style={{ marginTop: 10 }}>
           <summary className="field-label"><ChevronIcon className="chevron" />Headers</summary>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 8 }}>
-            <div style={{ minWidth: 0 }}>
-              {step.request_headers != null && (
-                <>
-                  <span className="field-label">Request Headers</span>
-                  <JsonBlock value={step.request_headers} />
-                </>
-              )}
-            </div>
-            <div style={{ minWidth: 0 }}>
-              {step.response_headers != null && (
-                <>
-                  <span className="field-label">Response Headers</span>
-                  <JsonBlock value={step.response_headers} />
-                </>
-              )}
-            </div>
+          <div style={{ marginTop: 8 }}>
+            <JsonBlock value={step.request_headers} />
           </div>
         </details>
       )}
@@ -258,7 +243,7 @@ const emptyStep = (defaultHeaders = []) => {
     name: '', endpoint_id: '', method: '', url_template: '', authCredentialId: '',
     headersRows,
     bodyType: 'json', bodyText: '', bodyRows: [emptyFormRow()],
-    extractRows: [], assertionsRows: [],
+    extractRows: [], assertionsRows: [], enabled: true,
   };
 };
 
@@ -290,6 +275,7 @@ function stepToPayload(step, endpoints) {
     body_type: step.bodyType,
     extract,
     assertions,
+    enabled: step.enabled !== false,
   };
 }
 
@@ -306,6 +292,7 @@ function stepFromApi(s) {
     bodyRows: objectToFormRows(s.body_template),
     extractRows: arrayToExtractRows(s.extract),
     assertionsRows: objectToAssertionRows(s.assertions),
+    enabled: s.enabled !== false,
   };
 }
 
@@ -535,6 +522,10 @@ export default function Flows() {
     const steps = [...editingFlow.steps];
     steps[idx] = { ...steps[idx], [field]: value };
     setEditingFlow({ ...editingFlow, steps });
+  };
+
+  const handleToggleAllStepsEditing = (enabled) => {
+    setEditingFlow({ ...editingFlow, steps: editingFlow.steps.map((s) => ({ ...s, enabled })) });
   };
 
   // bodyText (JSON) and bodyRows (Form Data) are two independent copies of
@@ -845,6 +836,30 @@ export default function Flows() {
     }
   };
 
+  // Unchecking a step here skips it on the flow's next full/batch/scheduled
+  // run (it can still be run individually via the per-step play button)
+  // without needing to open the edit form and re-save every step.
+  const handleToggleStepEnabled = async (flowId, stepId, enabled) => {
+    setViewingFlow((prev) => (prev ? { ...prev, steps: prev.steps.map((s) => (s.id === stepId ? { ...s, enabled } : s)) } : prev));
+    try {
+      await updateFlowStep(flowId, stepId, { enabled });
+    } catch (err) {
+      setViewingFlow((prev) => (prev ? { ...prev, steps: prev.steps.map((s) => (s.id === stepId ? { ...s, enabled: !enabled } : s)) } : prev));
+      showToast(err.response?.data?.error || 'Failed to update step — please try again.', 'error');
+    }
+  };
+
+  const handleToggleAllSteps = async (flowId, enabled) => {
+    const prevSteps = viewingFlow.steps;
+    setViewingFlow((prev) => (prev ? { ...prev, steps: prev.steps.map((s) => ({ ...s, enabled })) } : prev));
+    try {
+      await updateAllFlowSteps(flowId, { enabled });
+    } catch (err) {
+      setViewingFlow((prev) => (prev ? { ...prev, steps: prevSteps } : prev));
+      showToast(err.response?.data?.error || 'Failed to update steps — please try again.', 'error');
+    }
+  };
+
   // Save Flow stays disabled (and quiet) until every required field is
   // actually filled in — a name, and every step pointed at an endpoint.
   const canSaveFlow = !!(editingFlow && editingFlow.name.trim() && editingFlow.steps.every((s) => s.endpoint_id));
@@ -997,6 +1012,14 @@ export default function Flows() {
                 <h4 style={{ margin: 0 }}>View Flow: {viewingFlow.name}</h4>
                 <div className="toolbar">
                   {reorderingViewSteps && <span className="hint">Saving order…</span>}
+                  {viewingFlow.steps.length > 0 && (
+                    <button
+                      className="btn-quiet"
+                      onClick={() => handleToggleAllSteps(viewingFlow.id, !viewingFlow.steps.every((s) => s.enabled !== false))}
+                    >
+                      {viewingFlow.steps.every((s) => s.enabled !== false) ? 'Unselect All' : 'Select All'}
+                    </button>
+                  )}
                   <button className="btn-quiet" onClick={() => setViewingFlow(null)}>✕ Close</button>
                 </div>
               </div>
@@ -1026,9 +1049,17 @@ export default function Flows() {
                       >
                         <GripIcon />
                       </span>
+                      <input
+                        type="checkbox"
+                        checked={s.enabled !== false}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => handleToggleStepEnabled(viewingFlow.id, s.id, e.target.checked)}
+                        title={s.enabled === false ? 'Skipped on the next run — check to include it again' : 'Uncheck to skip this step on the next run'}
+                      />
                       <ChevronIcon className="chevron" />
-                      <span className="step-number-badge">{idx + 1}</span>
-                      <b>{s.name}</b>
+                      <span className="step-number-badge" style={{ opacity: s.enabled === false ? 0.5 : 1 }}>{idx + 1}</span>
+                      <b style={{ opacity: s.enabled === false ? 0.5 : 1, textDecoration: s.enabled === false ? 'line-through' : undefined }}>{s.name}</b>
+                      {s.enabled === false && <span className="hint">Skipped</span>}
                       <button
                         className="btn-icon"
                         style={{ marginLeft: 'auto' }}
@@ -1148,7 +1179,17 @@ export default function Flows() {
                 </label>
               </div>
 
-              <h4 style={{ marginTop: 20 }}>Steps</h4>
+              <div className="card-row" style={{ marginTop: 20 }}>
+                <h4 style={{ margin: 0 }}>Steps</h4>
+                {editingFlow.steps.length > 0 && (
+                  <button
+                    className="btn-quiet"
+                    onClick={() => handleToggleAllStepsEditing(!editingFlow.steps.every((s) => s.enabled !== false))}
+                  >
+                    {editingFlow.steps.every((s) => s.enabled !== false) ? 'Unselect All' : 'Select All'}
+                  </button>
+                )}
+              </div>
               <div className="stack">
                 {editingFlow.steps.map((step, idx) => (
                   <div
@@ -1180,10 +1221,18 @@ export default function Flows() {
                         >
                           <GripIcon />
                         </span>
+                        <input
+                          type="checkbox"
+                          checked={step.enabled !== false}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => handleStepChange(idx, 'enabled', e.target.checked)}
+                          title={step.enabled === false ? 'Skipped on the next run — check to include it again' : 'Uncheck to skip this step on the next run'}
+                        />
                         <ChevronIcon />
-                        <span className="step-number-badge">{idx + 1}</span>
-                        <span style={{ fontWeight: 600 }}>{step.name || 'Untitled step'}</span>
+                        <span className="step-number-badge" style={{ opacity: step.enabled === false ? 0.5 : 1 }}>{idx + 1}</span>
+                        <span style={{ fontWeight: 600, opacity: step.enabled === false ? 0.5 : 1, textDecoration: step.enabled === false ? 'line-through' : undefined }}>{step.name || 'Untitled step'}</span>
                         {step.method && <span className="hint mono">{step.method}</span>}
+                        {step.enabled === false && <span className="hint">Skipped</span>}
                         <div style={{ marginLeft: 'auto' }}>
                           <OptionsMenu
                             items={[
@@ -1206,6 +1255,12 @@ export default function Flows() {
                       >
                         <GripIcon />
                       </span>
+                      <input
+                        type="checkbox"
+                        checked={step.enabled !== false}
+                        onChange={(e) => handleStepChange(idx, 'enabled', e.target.checked)}
+                        title={step.enabled === false ? 'Skipped on the next run — check to include it again' : 'Uncheck to skip this step on the next run'}
+                      />
                       <ChevronIcon style={{ transform: 'rotate(90deg)', cursor: 'pointer' }} onClick={() => setExpandedStep(null)} />
                       <span className="step-number-badge">{idx + 1}</span>
                       <input

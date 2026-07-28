@@ -178,7 +178,9 @@ input:focus, select:focus, textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
-input[type="checkbox"] { width: 15px; height: 15px; margin-right: 6px; vertical-align: -2px; }
+/* Muted, not the bright brand accent — a column of checked boxes (e.g. flow
+   step selection) would otherwise read as a wall of loud purple. */
+input[type="checkbox"] { width: 15px; height: 15px; margin-right: 6px; vertical-align: -2px; accent-color: var(--text-muted); }
 textarea { resize: vertical; line-height: 1.5; }
 label { font-size: 13px; color: var(--text-muted); }
 

@@ -9,11 +9,18 @@ const STATUS_COLORS = {
 };
 const statusColor = (s) => STATUS_COLORS[s] || [110, 110, 110];
 
+// Neutral, status-independent tone for step numbering and passed-assertion
+// checkmarks — PASS is the expected/default outcome, so it doesn't need the
+// same green used for the run/step status pills; red is reserved for FAIL,
+// which is the thing actually worth an eye being drawn to.
+const SLATE = [100, 116, 139];
+const SLATE_LIGHT = [226, 229, 234];
+
 const INK = [40, 42, 48];
 const MUTED = [120, 124, 134];
 const BOX_BG = [244, 245, 248];
 const BOX_BORDER = [222, 225, 231];
-const RULE = [228, 230, 235];
+const RULE = [232, 234, 238];
 
 /**
  * Renders every run of one schedule into a single PDF — per run, per step:
@@ -52,8 +59,11 @@ export function exportScheduleSummaryToPdf(schedule, runs) {
     }
   };
 
+  // Passed assertions get a neutral slate check (validation ran, nothing to
+  // see here); only a failed assertion gets colored (red) so it actually
+  // stands out against a long list of otherwise-identical checkmarks.
   const drawStatusDot = (cx, cy, passed) => {
-    doc.setFillColor(...(passed ? STATUS_COLORS.PASS : STATUS_COLORS.FAIL));
+    doc.setFillColor(...(passed ? SLATE : STATUS_COLORS.FAIL));
     doc.circle(cx, cy, 4.5, 'F');
     doc.setDrawColor(255, 255, 255);
     doc.setLineWidth(1);
@@ -111,21 +121,29 @@ export function exportScheduleSummaryToPdf(schedule, runs) {
   doc.text(`Flow: ${schedule.flow_name || '-'}   •   Env: ${schedule.environment_name || '-'}`, margin + 14, y + 42);
   doc.text(`${totalRuns} run${totalRuns === 1 ? '' : 's'}`, margin + 14, y + 62);
   doc.text(runCountsLine || 'No runs', pageWidth - margin - 14, y + 62, { align: 'right' });
-  y += summaryHeight + 22;
+  y += summaryHeight + 24;
 
   // ---- Runs ----
+  const runHeaderHeight = 26;
   runs.forEach((run, runIdx) => {
-    ensureSpace(30);
+    ensureSpace(runHeaderHeight + 16);
+
+    // A slim, card-like title bar per run (rather than plain text) so each
+    // run reads as its own section, especially once steps push it across
+    // several pages.
+    doc.setFillColor(...BOX_BG);
+    doc.setDrawColor(...BOX_BORDER);
+    doc.roundedRect(margin, y, maxWidth, runHeaderHeight, 5, 5, 'FD');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11.5);
+    doc.setFontSize(11);
     doc.setTextColor(...INK);
-    doc.text(`Run #${run.id}`, margin, y);
-    drawBadge(run.status, margin + doc.getTextWidth(`Run #${run.id}`) + 10, y - 11, statusColor(run.status));
+    doc.text(`Run #${run.id}`, margin + 12, y + 17);
+    drawBadge(run.status, margin + 12 + doc.getTextWidth(`Run #${run.id}`) + 10, y + 5.5, statusColor(run.status));
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(...MUTED);
-    doc.text(new Date(run.created_at).toLocaleString(), pageWidth - margin, y, { align: 'right' });
-    y += 20;
+    doc.text(new Date(run.created_at).toLocaleString(), pageWidth - margin - 12, y + 17, { align: 'right' });
+    y += runHeaderHeight + 16;
 
     const steps = run.steps || [];
     if (steps.length === 0) {
@@ -134,50 +152,61 @@ export function exportScheduleSummaryToPdf(schedule, runs) {
 
     steps.forEach((step, idx) => {
       ensureSpace(30);
-      doc.setFillColor(...statusColor(step.status));
-      doc.circle(margin + 8 + 14, y - 3, 8, 'F');
+      doc.setFillColor(...SLATE);
+      doc.circle(margin + 22, y - 3, 8, 'F');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8.5);
       doc.setTextColor(255, 255, 255);
-      doc.text(String(idx + 1), margin + 8 + 14, y, { align: 'center' });
+      doc.text(String(idx + 1), margin + 22, y, { align: 'center' });
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
       doc.setTextColor(...INK);
-      doc.text(step.name, margin + 32, y);
-      drawBadge(step.status, margin + 32 + doc.getTextWidth(step.name) + 10, y - 10, statusColor(step.status));
+      doc.text(step.name, margin + 40, y);
+      drawBadge(step.status, margin + 40 + doc.getTextWidth(step.name) + 10, y - 10, statusColor(step.status));
       y += 16;
 
       if (Array.isArray(step.assertion_results) && step.assertion_results.length > 0) {
         for (const a of step.assertion_results) {
           const parts = describeAssertionParts(a);
           ensureSpace(13);
-          drawStatusDot(margin + 42, y - 3, a.passed);
+          drawStatusDot(margin + 46, y - 3, a.passed);
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(8.5);
-          doc.setTextColor(...INK);
+          doc.setTextColor(a.passed ? INK[0] : STATUS_COLORS.FAIL[0], a.passed ? INK[1] : STATUS_COLORS.FAIL[1], a.passed ? INK[2] : STATUS_COLORS.FAIL[2]);
           const text = `${parts.label} ${parts.value}`.trim();
-          const lines = doc.splitTextToSize(text, maxWidth - 54);
-          doc.text(lines[0], margin + 52, y);
+          const lines = doc.splitTextToSize(text, maxWidth - 58);
+          doc.text(lines[0], margin + 56, y);
           y += 12.5;
           for (let li = 1; li < lines.length; li++) {
             ensureSpace(12.5);
-            doc.text(lines[li], margin + 52, y);
+            doc.text(lines[li], margin + 56, y);
             y += 12.5;
           }
         }
       } else {
-        addText('No validations recorded for this step.', { size: 8.5, color: MUTED, indent: 32, lineGap: 12.5 });
+        addText('No validations recorded for this step.', { size: 8.5, color: MUTED, indent: 40, lineGap: 12.5 });
       }
-      y += 6;
+
+      if (idx < steps.length - 1) {
+        ensureSpace(14);
+        y += 6;
+        doc.setDrawColor(...SLATE_LIGHT);
+        doc.setLineWidth(0.75);
+        doc.line(margin + 22, y, pageWidth - margin, y);
+        y += 12;
+      } else {
+        y += 8;
+      }
     });
 
     if (runIdx < runs.length - 1) {
-      ensureSpace(20);
-      y += 6;
+      ensureSpace(24);
+      y += 8;
       doc.setDrawColor(...RULE);
+      doc.setLineWidth(1);
       doc.line(margin, y, pageWidth - margin, y);
-      y += 18;
+      y += 20;
     }
   });
 

@@ -2,7 +2,7 @@
 
 CREATE TABLE IF NOT EXISTS environments (
   id SERIAL PRIMARY KEY,
-  name VARCHAR(50) NOT NULL,
+  name VARCHAR(50) NOT NULL UNIQUE,
   base_url VARCHAR(255) NOT NULL,
   variables JSONB DEFAULT '{}',
   is_protected BOOLEAN DEFAULT FALSE,
@@ -12,6 +12,17 @@ CREATE TABLE IF NOT EXISTS environments (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Backfill the UNIQUE constraint onto an existing database (fresh installs
+-- already get it from the CREATE TABLE above). Without this, the seed INSERT
+-- below has nothing to conflict on, so re-running this file duplicates the
+-- seed environments every time instead of being a no-op.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'environments_name_key') THEN
+    ALTER TABLE environments ADD CONSTRAINT environments_name_key UNIQUE (name);
+  END IF;
+END $$;
 
 -- Generic folder tree shared by endpoints and flows (kind discriminates the two).
 CREATE TABLE IF NOT EXISTS folders (
@@ -119,15 +130,21 @@ CREATE TABLE IF NOT EXISTS flow_steps (
   body_type VARCHAR(20) DEFAULT 'json', -- 'json' | 'form-data'
   extract JSONB DEFAULT '[]',     -- [{ "variable": "token", "path": "data.access_token" }]
   assertions JSONB DEFAULT '[]',  -- optional: [{ "type": "status_code", "expected": 200 }, ...]
+  enabled BOOLEAN NOT NULL DEFAULT TRUE, -- unchecked steps are skipped on a full/batch/scheduled run, but can still be run individually
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_flow_steps_flow ON flow_steps(flow_id, step_order);
 
+ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
+
 CREATE TABLE IF NOT EXISTS flow_runs (
   id SERIAL PRIMARY KEY,
   flow_id INT REFERENCES flows(id) ON DELETE CASCADE,
-  environment_id INT REFERENCES environments(id) ON DELETE CASCADE,
+  -- RESTRICT, not CASCADE: deleting an environment used to silently wipe
+  -- every run ever made against it. Force deleting the runs (or moving them)
+  -- as a deliberate, separate step instead.
+  environment_id INT REFERENCES environments(id) ON DELETE RESTRICT,
   status VARCHAR(20) NOT NULL,
   triggered_by VARCHAR(50) DEFAULT 'manual',
   -- Which schedule (if any) triggered this run — precise attribution so
@@ -152,7 +169,6 @@ CREATE TABLE IF NOT EXISTS flow_run_steps (
   response_status_code INT,
   response_time_ms INT,
   response_body JSONB,
-  response_headers JSONB,
   error_message TEXT,
   assertion_results JSONB,
   extracted_variables JSONB,
@@ -163,18 +179,22 @@ CREATE TABLE IF NOT EXISTS flow_run_steps (
 CREATE INDEX IF NOT EXISTS idx_flow_run_steps_run ON flow_run_steps(flow_run_id, step_order);
 CREATE INDEX IF NOT EXISTS idx_flow_run_steps_endpoint ON flow_run_steps(endpoint_id, created_at);
 
--- Actually-sent request headers and the raw response headers, captured per
--- step run — added after the initial table so existing databases need this
--- backfilled via ALTER (fresh installs get it from the CREATE TABLE above).
+-- Actually-sent request headers, captured per step run — added after the
+-- initial table so existing databases need this backfilled via ALTER
+-- (fresh installs get it from the CREATE TABLE above).
 ALTER TABLE flow_run_steps ADD COLUMN IF NOT EXISTS request_headers JSONB;
-ALTER TABLE flow_run_steps ADD COLUMN IF NOT EXISTS response_headers JSONB;
+-- Dropped again shortly after being added — response headers turned out not
+-- to be needed, only what was actually sent.
+ALTER TABLE flow_run_steps DROP COLUMN IF EXISTS response_headers;
 
 CREATE TABLE IF NOT EXISTS schedules (
   id SERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   cron_expression VARCHAR(100) NOT NULL,   -- e.g. '*/30 * * * *' every 30 minutes
   flow_id INT REFERENCES flows(id) ON DELETE CASCADE,
-  environment_id INT REFERENCES environments(id) ON DELETE CASCADE,
+  -- RESTRICT, not CASCADE: deleting an environment used to silently delete
+  -- every schedule pointed at it (and, transitively, its run history).
+  environment_id INT REFERENCES environments(id) ON DELETE RESTRICT,
   is_active BOOLEAN DEFAULT TRUE,
   last_run_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -204,9 +224,23 @@ CREATE TABLE IF NOT EXISTS test_files (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Seed default environments (sesuai pattern privysign Dendy)
+-- Seed default environments (sesuai pattern privysign Dendy). Conflict target
+-- is explicit (name) — without it, "ON CONFLICT DO NOTHING" has nothing to
+-- match against and silently inserts a fresh duplicate batch on every re-run
+-- of this file (this is what happened; see environments_name_key above).
 INSERT INTO environments (name, base_url, variables, is_protected) VALUES
   ('DEV', 'https://public-api-gateway.carstensz.privydev.id/privysign', '{}', FALSE),
   ('STG', 'https://stg-public-api.privy.id/privysign', '{}', FALSE),
   ('PROD', 'https://api-carstensz.privy.id/privysign', '{}', TRUE)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name) DO NOTHING;
+
+-- environment_id previously CASCADEd on both these tables — deleting an
+-- environment silently wiped every schedule/run tied to it. RESTRICT forces
+-- that to be a deliberate, separate step (delete the runs/schedules first).
+ALTER TABLE flow_runs DROP CONSTRAINT IF EXISTS flow_runs_environment_id_fkey;
+ALTER TABLE flow_runs ADD CONSTRAINT flow_runs_environment_id_fkey
+  FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE RESTRICT;
+
+ALTER TABLE schedules DROP CONSTRAINT IF EXISTS schedules_environment_id_fkey;
+ALTER TABLE schedules ADD CONSTRAINT schedules_environment_id_fkey
+  FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE RESTRICT;

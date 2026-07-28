@@ -9,8 +9,8 @@ async function replaceSteps(client, flowId, steps) {
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
     await client.query(
-      `INSERT INTO flow_steps (flow_id, endpoint_id, auth_credential_id, step_order, name, method, url_template, headers, body_template, body_type, extract, assertions)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11::jsonb,$12::jsonb)`,
+      `INSERT INTO flow_steps (flow_id, endpoint_id, auth_credential_id, step_order, name, method, url_template, headers, body_template, body_type, extract, assertions, enabled)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11::jsonb,$12::jsonb,$13)`,
       [
         flowId, s.endpoint_id || null, s.auth_credential_id || null, i, s.name, s.method, s.url_template,
         JSON.stringify(s.headers || {}),
@@ -18,6 +18,7 @@ async function replaceSteps(client, flowId, steps) {
         s.body_type || 'json',
         JSON.stringify(s.extract || []),
         JSON.stringify(s.assertions || []),
+        s.enabled !== false,
       ]
     );
   }
@@ -191,6 +192,8 @@ router.post('/:id/run', catchAsync(async (req, res) => {
 
   const stepsResult = await pool.query('SELECT * FROM flow_steps WHERE flow_id=$1 ORDER BY step_order', [flow.id]);
   if (stepsResult.rows.length === 0) return res.status(400).json({ error: 'Flow has no steps' });
+  const stepsToRun = stepsResult.rows.filter((s) => s.enabled !== false);
+  if (stepsToRun.length === 0) return res.status(400).json({ error: 'Flow has no enabled steps' });
 
   const envResult = await pool.query('SELECT * FROM environments WHERE id=$1', [environment_id]);
   const environment = envResult.rows[0];
@@ -204,7 +207,7 @@ router.post('/:id/run', catchAsync(async (req, res) => {
     });
   }
 
-  const result = await runFlowAndPersist(flow, stepsResult.rows, environment, triggered_by);
+  const result = await runFlowAndPersist(flow, stepsToRun, environment, triggered_by);
   // Don't expose `variables` (environment secrets + everything extracted) —
   // it only exists internally for chaining into the next flow in a batch run.
   res.json({ flow_run: result.flow_run, steps: result.steps });
@@ -253,6 +256,30 @@ router.post('/:id/steps/:stepId/run', catchAsync(async (req, res) => {
   res.json({ flow_run: result.flow_run, steps: result.steps });
 }));
 
+// TOGGLE a single step's enabled flag — unchecked steps are skipped on the
+// next full/batch/scheduled run of this flow, without needing to open the
+// full edit form and re-save every step.
+router.patch('/:id/steps/:stepId', catchAsync(async (req, res) => {
+  const { enabled } = req.body;
+  const result = await pool.query(
+    'UPDATE flow_steps SET enabled=$1 WHERE id=$2 AND flow_id=$3 RETURNING *',
+    [enabled !== false, req.params.stepId, req.params.id]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: 'Step not found' });
+  res.json(result.rows[0]);
+}));
+
+// BULK TOGGLE every step of a flow's enabled flag in one call — backs the
+// View Flow panel's "Select All" / "Unselect All" controls.
+router.patch('/:id/steps', catchAsync(async (req, res) => {
+  const { enabled } = req.body;
+  const result = await pool.query(
+    'UPDATE flow_steps SET enabled=$1 WHERE flow_id=$2 RETURNING *',
+    [enabled !== false, req.params.id]
+  );
+  res.json(result.rows);
+}));
+
 // BATCH RUN: run several flows in sequence against one environment, chaining
 // each flow's extracted variables into the next — e.g. run a "Login" flow
 // first, then a "Get Profile" flow that reuses the token it extracted.
@@ -284,12 +311,13 @@ router.post('/batch-run', catchAsync(async (req, res) => {
     }
 
     const stepsResult = await pool.query('SELECT * FROM flow_steps WHERE flow_id=$1 ORDER BY step_order', [flow.id]);
-    if (stepsResult.rows.length === 0) {
-      results.push({ flow_id: flow.id, flow_name: flow.name, error: 'Flow has no steps' });
+    const stepsToRun = stepsResult.rows.filter((s) => s.enabled !== false);
+    if (stepsToRun.length === 0) {
+      results.push({ flow_id: flow.id, flow_name: flow.name, error: 'Flow has no enabled steps' });
       continue;
     }
 
-    const result = await runFlowAndPersist(flow, stepsResult.rows, environment, triggered_by, null, carryVariables);
+    const result = await runFlowAndPersist(flow, stepsToRun, environment, triggered_by, null, carryVariables);
     carryVariables = result.variables; // hand off to the next flow in the batch
     results.push({ flow_id: flow.id, flow_name: flow.name, flow_run: result.flow_run, steps: result.steps });
   }

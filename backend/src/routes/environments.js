@@ -53,9 +53,22 @@ router.put('/:id', catchAsync(async (req, res) => {
   res.json(result.rows[0]);
 }));
 
-// DELETE environment
+// DELETE environment. Blocked (409) while any run history or schedule still
+// points at it (environment_id is ON DELETE RESTRICT on both) — deleting an
+// environment used to silently cascade-delete all of that history instead.
 router.delete('/:id', catchAsync(async (req, res) => {
-  await pool.query('DELETE FROM environments WHERE id=$1', [req.params.id]);
+  try {
+    await pool.query('DELETE FROM environments WHERE id=$1', [req.params.id]);
+  } catch (err) {
+    if (err.code === '23503') {
+      const [{ runs }] = (await pool.query('SELECT COUNT(*)::int as runs FROM flow_runs WHERE environment_id=$1', [req.params.id])).rows;
+      const [{ schedules }] = (await pool.query('SELECT COUNT(*)::int as schedules FROM schedules WHERE environment_id=$1', [req.params.id])).rows;
+      return res.status(409).json({
+        error: `Can't delete this environment: it still has ${runs} run(s) and ${schedules} schedule(s). Delete or reassign those first.`,
+      });
+    }
+    throw err;
+  }
   res.status(204).send();
 }));
 

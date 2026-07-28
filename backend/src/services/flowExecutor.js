@@ -351,7 +351,6 @@ async function executeFlow(flow, steps, environment, previousSchemas = {}, authC
         response_status_code: response.status,
         response_time_ms: responseTimeMs,
         response_body: response.data,
-        response_headers: response.headers ?? null,
         error_message: status === 'FAIL'
           ? JSON.stringify(assertionResults ? assertionResults.filter((a) => !a.passed) : [{ type: 'http_status', expected: '< 400', actual: response.status }])
           : null,
@@ -374,7 +373,6 @@ async function executeFlow(flow, steps, environment, previousSchemas = {}, authC
         response_status_code: null,
         response_time_ms: Date.now() - start,
         response_body: null,
-        response_headers: null,
         error_message: describeConnectionError(err),
         assertion_results: null,
         extracted_variables: {},

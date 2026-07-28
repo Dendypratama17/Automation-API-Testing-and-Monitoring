@@ -479,26 +479,11 @@ export default function Schedules() {
                           </div>
                         )}
 
-                        {(step.request_headers != null || step.response_headers != null) && (
+                        {step.request_headers != null && (
                           <details style={{ marginTop: 10 }}>
                             <summary className="field-label"><ChevronIcon className="chevron" />Headers</summary>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 8 }}>
-                              <div style={{ minWidth: 0 }}>
-                                {step.request_headers != null && (
-                                  <>
-                                    <span className="field-label">Request Headers</span>
-                                    <JsonBlock value={step.request_headers} />
-                                  </>
-                                )}
-                              </div>
-                              <div style={{ minWidth: 0 }}>
-                                {step.response_headers != null && (
-                                  <>
-                                    <span className="field-label">Response Headers</span>
-                                    <JsonBlock value={step.response_headers} />
-                                  </>
-                                )}
-                              </div>
+                            <div style={{ marginTop: 8 }}>
+                              <JsonBlock value={step.request_headers} />
                             </div>
                           </details>
                         )}

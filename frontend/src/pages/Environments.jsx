@@ -49,8 +49,8 @@ export default function Environments() {
 
   const handleDelete = async (env) => {
     const warning = env.is_protected
-      ? `"${env.name}" is marked protected. Deleting it will also delete its related flow run & schedule history. Continue?`
-      : `Delete environment "${env.name}"? Its related flow run & schedule history will be deleted too.`;
+      ? `"${env.name}" is marked protected. Delete it?`
+      : `Delete environment "${env.name}"?`;
     if (!(await confirm(warning))) return;
 
     setError('');
