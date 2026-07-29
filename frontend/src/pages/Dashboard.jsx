@@ -149,7 +149,7 @@ function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, runInfo
         </div>
         <div className="hint" style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12.5, marginTop: 10 }}>
           <span className="mono">Flow ID: {selectedRow.flow_run_id}</span>
-          {selectedRow.base_url && <span>Base URL: {selectedRow.base_url}</span>}
+          <span className="mono">Endpoint: {selectedRow.request_method} {resourcePath(selectedRow.request_url)}</span>
           <span>Env: {selectedRow.environment_name}</span>
           <span>Status: {selectedRow.response_status_code ?? '-'}</span>
           <span>Duration: {selectedRow.response_time_ms}ms</span>

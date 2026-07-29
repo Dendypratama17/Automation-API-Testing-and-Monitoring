@@ -50,13 +50,18 @@ function parseCurl(curlString) {
     } else if (t === '-u' || t === '--user') {
       i++; // skip basic auth value, not handled yet
     } else if (!t.startsWith('-') && t !== 'curl') {
-      if (/^https?:\/\//.test(t)) {
-        url = t;
-      }
+      // Every recognized flag above consumes its own value via tokens[++i],
+      // and an unrecognized flag (e.g. --location) is simply skipped without
+      // ever reaching this branch (it still starts with '-') — so the one
+      // remaining bare token here is always the URL, exactly like real curl.
+      // It may have no scheme (e.g. a local `localhost:9191/decrypt`), which
+      // is normalized below rather than silently dropped.
+      url = t;
     }
   }
 
   if (isMultipart) body = formFields;
+  if (url && !/^https?:\/\//.test(url)) url = `http://${url}`;
 
   return { method: method || 'GET', url, headers, body, isMultipart };
 }
