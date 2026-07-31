@@ -23,6 +23,14 @@ export function objectToFormRows(obj) {
     if (typeof value === 'string' && FILE_PLACEHOLDER_RE.test(value)) {
       return { key, type: 'file', value: '', enabled: true, fileMeta: null };
     }
+    // A plain nested object/array (not a file marker) only shows up here
+    // after editing the JSON preview, which unwraps a field's JSON-encoded
+    // string into real nested structure for readability — re-stringify it
+    // back into text instead of letting `String(value)` produce the useless
+    // "[object Object]", since a multipart field can only be a flat string.
+    if (value && typeof value === 'object') {
+      return { key, type: 'text', value: JSON.stringify(value), enabled: true, fileMeta: null };
+    }
     return { key, type: 'text', value: value == null ? '' : String(value), enabled: true, fileMeta: null };
   });
 }

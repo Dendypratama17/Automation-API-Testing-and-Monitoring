@@ -7,6 +7,7 @@ import JsonBlock from '../components/JsonBlock.jsx';
 import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
 import { exportRunResultToPdf } from '../utils/exportRunResultPdf.js';
+import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
 
 // A generic, commonly-used API response-time guideline — not tied to any
 // specific assertion, just a visual reference line on the aggregate chart so
@@ -229,12 +230,12 @@ function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, runInfo
           </div>
           <div>
             <span className="field-label">Request Body</span>
-            <JsonBlock value={detail.endpoint.body_template} />
+            <JsonBlock value={unwrapJsonStrings(detail.endpoint.body_template)} />
           </div>
         </div>
         <div style={{ minWidth: 0 }}>
           <span className="field-label">Response Body</span>
-          <JsonBlock value={selectedRow.response_body} />
+          <JsonBlock value={unwrapJsonStrings(selectedRow.response_body)} />
         </div>
       </div>
 

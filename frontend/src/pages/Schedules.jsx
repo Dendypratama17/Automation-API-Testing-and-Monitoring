@@ -10,6 +10,7 @@ import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
 import { DownloadIcon, ChevronIcon } from '../components/icons.jsx';
 import { exportRunResultToPdf } from '../utils/exportRunResultPdf.js';
 import { exportScheduleSummaryToPdf } from '../utils/exportScheduleSummaryPdf.js';
+import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
 
 const CRON_PRESETS = [
   { label: 'Every 30 seconds', value: '*/30 * * * * *' },
@@ -496,7 +497,7 @@ export default function Schedules() {
                               {step.request_body != null && (
                                 <>
                                   <span className="field-label">Request Body</span>
-                                  <JsonBlock value={step.request_body} />
+                                  <JsonBlock value={unwrapJsonStrings(step.request_body)} />
                                 </>
                               )}
                             </div>
@@ -504,7 +505,7 @@ export default function Schedules() {
                               {step.response_body != null && (
                                 <>
                                   <span className="field-label">Response Body</span>
-                                  <JsonBlock value={step.response_body} />
+                                  <JsonBlock value={unwrapJsonStrings(step.response_body)} />
                                 </>
                               )}
                             </div>

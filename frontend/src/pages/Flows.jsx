@@ -18,6 +18,7 @@ import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
 import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
 import { exportRunResultToPdf } from '../utils/exportRunResultPdf.js';
+import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const BODY_METHODS = ['POST', 'PUT'];
@@ -85,7 +86,7 @@ function sanitizeBodyForPreview(body) {
     for (const [k, v] of Object.entries(body)) out[k] = sanitizeBodyForPreview(v);
     return out;
   }
-  return body;
+  return unwrapJsonStrings(body);
 }
 
 const ASSERTION_FAILURE_LABELS = {
@@ -201,7 +202,7 @@ function StepResultRow({ step, isLast }) {
             {step.request_body != null && (
               <>
                 <span className="field-label">Request Body</span>
-                <JsonBlock value={step.request_body} />
+                <JsonBlock value={unwrapJsonStrings(step.request_body)} />
               </>
             )}
           </div>
@@ -209,7 +210,7 @@ function StepResultRow({ step, isLast }) {
             {step.response_body != null && (
               <>
                 <span className="field-label">Response Body</span>
-                <JsonBlock value={step.response_body} />
+                <JsonBlock value={unwrapJsonStrings(step.response_body)} />
               </>
             )}
           </div>
@@ -559,11 +560,17 @@ export default function Flows() {
         // A file row's real fileMeta must never be replaced by the "<N bytes
         // omitted>" placeholder that JSON.parse would otherwise hand back —
         // keep whatever real data bodyRows already had for that key.
+        // objectToFormRows always returns a truthy fileMeta for a __file__
+        // object (even a sanitized preview one, whose `data` IS that literal
+        // placeholder string) — so `!r.fileMeta` alone never actually caught
+        // this, silently swapping a real file's bytes for the placeholder
+        // text the moment the JSON preview was ever viewed and switched back.
+        const isPlaceholderFileData = (data) => typeof data === 'string' && /^<\d+ bytes omitted>$/.test(data);
         const existingFileMetaByKey = Object.fromEntries(
           step.bodyRows.filter((r) => r.type === 'file' && r.fileMeta).map((r) => [r.key, r.fileMeta])
         );
         const newRows = objectToFormRows(parsed).map((r) => (
-          r.type === 'file' && !r.fileMeta && existingFileMetaByKey[r.key]
+          r.type === 'file' && (!r.fileMeta || isPlaceholderFileData(r.fileMeta.data)) && existingFileMetaByKey[r.key]
             ? { ...r, fileMeta: existingFileMetaByKey[r.key] }
             : r
         ));
