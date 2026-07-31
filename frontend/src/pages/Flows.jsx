@@ -1315,8 +1315,8 @@ export default function Flows() {
                         <input
                           className="mono"
                           value={step.url_template}
-                          disabled
-                          title={step.url_template}
+                          onChange={(e) => handleStepChange(idx, 'url_template', e.target.value)}
+                          title="Editing this only affects this step — the shared endpoint definition (and any other step using it) is unchanged."
                           style={{ flex: 1, minWidth: 0 }}
                         />
                       )}
