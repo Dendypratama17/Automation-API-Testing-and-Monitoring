@@ -65,6 +65,12 @@ function resourcePath(url) {
   }
 }
 
+// delay_ms is stored/sent in milliseconds, but the UI works in seconds —
+// strips floating-point noise (e.g. 1500/1000 → "1.5", not "1.4999999...").
+function formatDelaySeconds(ms) {
+  return parseFloat((Number(ms) / 1000).toFixed(2));
+}
+
 // A base64 file blob would dump megabytes of text into the JSON textarea —
 // same idea as the backend's sanitizeBodyForStorage, just for the live
 // preview shown when switching from Form Data to the JSON tab.
@@ -243,7 +249,7 @@ const emptyStep = (defaultHeaders = []) => {
     name: '', endpoint_id: '', method: '', url_template: '', authCredentialId: '',
     headersRows,
     bodyType: 'json', bodyText: '', bodyRows: [emptyFormRow()],
-    extractRows: [], assertionsRows: [], enabled: true,
+    extractRows: [], assertionsRows: [], enabled: true, delayMs: '',
   };
 };
 
@@ -276,6 +282,7 @@ function stepToPayload(step, endpoints) {
     extract,
     assertions,
     enabled: step.enabled !== false,
+    delay_ms: step.delayMs ? Number(step.delayMs) : 0,
   };
 }
 
@@ -293,6 +300,7 @@ function stepFromApi(s) {
     extractRows: arrayToExtractRows(s.extract),
     assertionsRows: objectToAssertionRows(s.assertions),
     enabled: s.enabled !== false,
+    delayMs: s.delay_ms ? String(s.delay_ms) : '',
   };
 }
 
@@ -1059,6 +1067,7 @@ export default function Flows() {
                       <ChevronIcon className="chevron" />
                       <span className="step-number-badge" style={{ opacity: s.enabled === false ? 0.5 : 1 }}>{idx + 1}</span>
                       <b style={{ opacity: s.enabled === false ? 0.5 : 1, textDecoration: s.enabled === false ? 'line-through' : undefined }}>{s.name}</b>
+                      {Number(s.delay_ms) > 0 && <span className="hint" title="Delay before this step runs">⏱ {formatDelaySeconds(s.delay_ms)}s</span>}
                       {s.enabled === false && <span className="hint">Skipped</span>}
                       <button
                         className="btn-icon"
@@ -1232,6 +1241,7 @@ export default function Flows() {
                         <span className="step-number-badge" style={{ opacity: step.enabled === false ? 0.5 : 1 }}>{idx + 1}</span>
                         <span style={{ fontWeight: 600, opacity: step.enabled === false ? 0.5 : 1, textDecoration: step.enabled === false ? 'line-through' : undefined }}>{step.name || 'Untitled step'}</span>
                         {step.method && <span className="hint mono">{step.method}</span>}
+                        {Number(step.delayMs) > 0 && <span className="hint" title="Delay before this step runs">⏱ {formatDelaySeconds(step.delayMs)}s</span>}
                         {step.enabled === false && <span className="hint">Skipped</span>}
                         <div style={{ marginLeft: 'auto' }}>
                           <OptionsMenu
@@ -1308,6 +1318,21 @@ export default function Flows() {
                           style={{ flex: 1, minWidth: 0 }}
                         />
                       )}
+                    </div>
+
+                    <div className="toolbar" style={{ marginBottom: 8 }}>
+                      <label className="hint" style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}>Delay before this step</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        placeholder="0"
+                        value={step.delayMs ? String(Number(step.delayMs) / 1000) : ''}
+                        onChange={(e) => handleStepChange(idx, 'delayMs', e.target.value ? String(Number(e.target.value) * 1000) : '')}
+                        style={{ width: 90 }}
+                        title="Wait this many seconds before running this step — e.g. giving an async backend process time to finish first."
+                      />
+                      <span className="hint" style={{ fontSize: 12.5 }}>s</span>
                     </div>
 
                     {step.endpoint_id && (

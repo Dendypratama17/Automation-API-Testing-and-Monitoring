@@ -16,6 +16,11 @@ const ASSERTION_PARTS = {
     label: `In "${a.path}", where "${a.matchField}" = ${JSON.stringify(a.matchValue)}, "${a.checkField}" =`,
     value: JSON.stringify(a.expected),
   }),
+  array_none_equals: (a) => ({ label: `In "${a.path}", no item's "${a.checkField}" =`, value: JSON.stringify(a.expected) }),
+  array_deep_none_equals: (a) => ({
+    label: `In "${a.path}"${a.subPath ? `.${a.subPath}` : ''}, no nested "${a.key}" (any depth) =`,
+    value: JSON.stringify(a.expected),
+  }),
   header_exists: (a) => ({ label: `Header "${a.header}" exists`, value: '' }),
   header_equals: (a) => ({ label: `Header "${a.header}" =`, value: `"${a.expected}"` }),
 };

@@ -226,7 +226,7 @@ export default function TestFiles() {
                     </div>
                   ) : (
                     <span className="truncate" style={{ maxWidth: '100%' }} title={f.file_name}>
-                      {f.file_name} <span className="hint">({f.mime_type})</span>
+                      {f.file_name}
                     </span>
                   )}
                 </td>

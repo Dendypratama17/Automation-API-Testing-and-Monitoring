@@ -82,6 +82,8 @@ const ASSERTION_LABELS = {
   field_greater_than: (a) => `Expected <code>${escapeHtml(a.path)}</code> &gt; <b>${escapeHtml(a.expected)}</b>`,
   field_less_than: (a) => `Expected <code>${escapeHtml(a.path)}</code> &lt; <b>${escapeHtml(a.expected)}</b>`,
   array_length: (a) => `Expected <code>${escapeHtml(a.path)}</code> to have length <b>${escapeHtml(a.expected)}</b>`,
+  array_none_equals: (a) => `Expected no item in <code>${escapeHtml(a.path)}</code> to have <code>${escapeHtml(a.checkField)}</code> = <code>${escapeHtml(String(a.expected))}</code>`,
+  array_deep_none_equals: (a) => `Expected no nested <code>${escapeHtml(a.key)}</code> under <code>${escapeHtml(a.path)}${a.subPath ? `.${a.subPath}` : ''}</code> to equal <code>${escapeHtml(String(a.expected))}</code>`,
   header_exists: (a) => `Expected header <code>${escapeHtml(a.header)}</code> to exist`,
   header_equals: (a) => `Expected header <code>${escapeHtml(a.header)}</code> to equal <code>${escapeHtml(String(a.expected))}</code>`,
   http_status: (a) => `Expected status <b>${escapeHtml(a.expected)}</b>, got <b>${escapeHtml(a.actual)}</b>`,

@@ -1,6 +1,12 @@
 import { jsPDF } from 'jspdf';
 import { describeAssertionParts } from './assertionDescriptions.js';
 
+// Same idea as the Dashboard/Flows/Schedules resourcePath helper: show just
+// the path, not the {{base_url}}-resolved URL, so it stays compact.
+function resourcePath(template) {
+  return String(template || '').replace(/^\{\{base_url\}\}/, '') || '/';
+}
+
 const STATUS_COLORS = {
   PASS: [22, 163, 74],
   FAIL: [220, 38, 38],
@@ -123,6 +129,63 @@ export function exportScheduleSummaryToPdf(schedule, runs) {
   doc.text(runCountsLine || 'No runs', pageWidth - margin - 14, y + 62, { align: 'right' });
   y += summaryHeight + 24;
 
+  // ---- Run status timeline — one small dot per run, colored by status, read
+  // left-to-right oldest-to-newest so a flaky/degrading pattern across the
+  // whole schedule is visible at a glance without opening every run. `runs`
+  // arrives newest-first (matches the Run History table order used for the
+  // per-run sections below), so it's reversed just for this strip. Wrapped
+  // in its own card (rather than floating text + dots) to read as one
+  // distinct section, consistent with the summary card above it.
+  if (totalRuns > 0) {
+    const chronological = [...runs].reverse();
+    const dotSize = 8;
+    const dotGap = 6;
+    const pad = 14;
+    const innerWidth = maxWidth - pad * 2;
+    const perRow = Math.max(1, Math.floor((innerWidth + dotGap) / (dotSize + dotGap)));
+    const timelineRows = Math.ceil(chronological.length / perRow);
+    const dotsAreaHeight = timelineRows * (dotSize + dotGap) - dotGap;
+    const titleRowH = 16;
+    const legendRowH = 18;
+    const cardHeight = pad * 2 + titleRowH + dotsAreaHeight + 10 + legendRowH;
+
+    ensureSpace(cardHeight + 20);
+    doc.setFillColor(...BOX_BG);
+    doc.setDrawColor(...BOX_BORDER);
+    doc.roundedRect(margin, y, maxWidth, cardHeight, 6, 6, 'FD');
+
+    let cy = y + pad;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(...INK);
+    doc.text('Run Status Timeline', margin + pad, cy + 2);
+    cy += titleRowH;
+
+    chronological.forEach((run, i) => {
+      const col = i % perRow;
+      const row = Math.floor(i / perRow);
+      const cx = margin + pad + col * (dotSize + dotGap) + dotSize / 2;
+      const dotY = cy + row * (dotSize + dotGap) + dotSize / 2;
+      doc.setFillColor(...statusColor(run.status));
+      doc.circle(cx, dotY, dotSize / 2, 'F');
+    });
+    cy += dotsAreaHeight + 10;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    let lx = margin + pad;
+    for (const [status, count] of Object.entries(runCounts)) {
+      doc.setFillColor(...statusColor(status));
+      doc.circle(lx + 4, cy - 2, 4, 'F');
+      doc.setTextColor(...MUTED);
+      const label = `${status} (${count})`;
+      doc.text(label, lx + 12, cy);
+      lx += 12 + doc.getTextWidth(label) + 18;
+    }
+
+    y += cardHeight + 20;
+  }
+
   // ---- Runs ----
   const runHeaderHeight = 26;
   runs.forEach((run, runIdx) => {
@@ -164,7 +227,16 @@ export function exportScheduleSummaryToPdf(schedule, runs) {
       doc.setTextColor(...INK);
       doc.text(step.name, margin + 40, y);
       drawBadge(step.status, margin + 40 + doc.getTextWidth(step.name) + 10, y - 10, statusColor(step.status));
-      y += 16;
+      y += 14;
+
+      if (step.request_method || step.request_url) {
+        ensureSpace(12);
+        doc.setFont('courier', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(...MUTED);
+        doc.text(`${step.request_method || ''} ${resourcePath(step.request_url)}`.trim(), margin + 40, y);
+        y += 13;
+      }
 
       if (Array.isArray(step.assertion_results) && step.assertion_results.length > 0) {
         for (const a of step.assertion_results) {

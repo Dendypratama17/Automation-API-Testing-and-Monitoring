@@ -131,12 +131,14 @@ CREATE TABLE IF NOT EXISTS flow_steps (
   extract JSONB DEFAULT '[]',     -- [{ "variable": "token", "path": "data.access_token" }]
   assertions JSONB DEFAULT '[]',  -- optional: [{ "type": "status_code", "expected": 200 }, ...]
   enabled BOOLEAN NOT NULL DEFAULT TRUE, -- unchecked steps are skipped on a full/batch/scheduled run, but can still be run individually
+  delay_ms INT NOT NULL DEFAULT 0, -- waited before this step runs — e.g. giving an async backend process time to finish before the next check
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_flow_steps_flow ON flow_steps(flow_id, step_order);
 
 ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS delay_ms INT NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS flow_runs (
   id SERIAL PRIMARY KEY,

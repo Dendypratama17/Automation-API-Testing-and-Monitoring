@@ -138,6 +138,25 @@ function getField(obj, path) {
   return path.split('.').reduce((acc, key) => (acc == null ? undefined : acc[key]), obj);
 }
 
+// Recursively walks every object/array under `node`, collecting the value of
+// every key literally named `key`, at any depth — e.g. a `trustedStatus`
+// field that appears both directly on a signature and again on each entry of
+// a nested certificateChain array. getField's dot-path only reaches one
+// fixed depth per call; this is for "find every occurrence, regardless of
+// how deep or how many array levels it's nested under".
+function collectDeepValues(node, key, out = []) {
+  if (node == null || typeof node !== 'object') return out;
+  if (Array.isArray(node)) {
+    for (const item of node) collectDeepValues(item, key, out);
+  } else {
+    for (const [k, v] of Object.entries(node)) {
+      if (k === key) out.push(v);
+      if (v != null && typeof v === 'object') collectDeepValues(v, key, out);
+    }
+  }
+  return out;
+}
+
 /**
  * form-data bodies are stored as a flat {key: value} object (same shape as
  * headers), except file fields which carry { __file__: true, name, mimeType,
@@ -231,6 +250,35 @@ function checkAssertions(assertions, response, responseTimeMs) {
         const passed = match !== undefined && getField(match, assertion.checkField) === assertion.expected;
         return { ...assertion, passed };
       }
+      // Inverse of array_find_equals: checks that NO item in the array at
+      // `path` has its `checkField` equal to `expected` — e.g. "none of the
+      // signatures' certificateInfo.trustedStatus is UNTRUSTED" — without
+      // needing to know the array's length ahead of time (unlike a fixed-
+      // index field_equals per item, which breaks as soon as the count varies).
+      case 'array_none_equals': {
+        const arr = getField(response.data, assertion.path);
+        if (!Array.isArray(arr)) return { ...assertion, passed: false };
+        const match = arr.find((item) => (assertion.checkField ? getField(item, assertion.checkField) : item) === assertion.expected);
+        return { ...assertion, passed: match === undefined };
+      }
+      // For each item in the array at `path`, scopes down to `subPath` (e.g.
+      // "certificateInfo" — omit to use the whole item), then recursively
+      // scans that scoped subtree for every field literally named `key`, at
+      // any nesting depth/array level, and checks that NONE of the values
+      // found equal `expected` — e.g. "no `trustedStatus` anywhere under each
+      // signature's certificateInfo is UNTRUSTED", covering both the field
+      // directly on certificateInfo AND every entry of its nested
+      // certificateChain array, without also reaching into timeStampInfo.
+      case 'array_deep_none_equals': {
+        const arr = getField(response.data, assertion.path);
+        if (!Array.isArray(arr)) return { ...assertion, passed: false };
+        const values = [];
+        for (const item of arr) {
+          const scoped = assertion.subPath ? getField(item, assertion.subPath) : item;
+          collectDeepValues(scoped, assertion.key, values);
+        }
+        return { ...assertion, passed: !values.includes(assertion.expected) };
+      }
       case 'header_exists': {
         const name = String(assertion.header || '').toLowerCase();
         return { ...assertion, passed: response.headers?.[name] !== undefined };
@@ -265,6 +313,11 @@ async function executeFlow(flow, steps, environment, previousSchemas = {}, authC
   let overallStatus = 'PASS';
 
   for (const step of steps) {
+    // Waited before this step runs at all — e.g. giving an async backend
+    // process (document indexing, a webhook) time to finish before the next
+    // check, without hardcoding a delay into every step's own request.
+    if (step.delay_ms > 0) await sleep(step.delay_ms);
+
     // Fresh per request (not per flow run) — lets a {{request_id}} header
     // uniquely trace each individual call, even across steps in the same run.
     variables.request_id = crypto.randomUUID();

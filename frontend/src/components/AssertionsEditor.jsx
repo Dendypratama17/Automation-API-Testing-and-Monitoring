@@ -12,13 +12,15 @@ const ASSERTION_TYPES = [
   { value: 'field_less_than', label: 'Field Less Than' },
   { value: 'array_length', label: 'Array Length' },
   { value: 'array_find_equals', label: 'Array: Find Item & Check Field' },
+  { value: 'array_none_equals', label: 'Array: No Item Equals' },
+  { value: 'array_deep_none_equals', label: 'Array: No Nested Field Equals (Deep Scan)' },
   { value: 'header_exists', label: 'Header Exists' },
   { value: 'header_equals', label: 'Header Equals' },
 ];
 
 const emptyAssertionRow = () => ({
   type: 'status_code', expected: '', max_ms: '', path: '', pattern: '', header: '',
-  matchField: '', matchValue: '', checkField: '', enabled: true,
+  matchField: '', matchValue: '', checkField: '', subPath: '', key: '', enabled: true,
 });
 
 export function objectToAssertionRows(assertions) {
@@ -33,6 +35,8 @@ export function objectToAssertionRows(assertions) {
     matchField: a.matchField || '',
     matchValue: a.matchValue !== undefined && a.matchValue !== null ? String(a.matchValue) : '',
     checkField: a.checkField || '',
+    subPath: a.subPath || '',
+    key: a.key || '',
     enabled: a.enabled !== false,
   }));
 }
@@ -95,6 +99,29 @@ export function assertionRowsToArray(rows) {
           });
         }
         break;
+      case 'array_none_equals':
+        if (r.path.trim() && r.checkField.trim()) {
+          out.push({
+            type: 'array_none_equals',
+            path: r.path.trim(),
+            checkField: r.checkField.trim(),
+            expected: coerceExpected(r.expected),
+            ...enabledFlag,
+          });
+        }
+        break;
+      case 'array_deep_none_equals':
+        if (r.path.trim() && r.key.trim()) {
+          out.push({
+            type: 'array_deep_none_equals',
+            path: r.path.trim(),
+            ...(r.subPath.trim() ? { subPath: r.subPath.trim() } : {}),
+            key: r.key.trim(),
+            expected: coerceExpected(r.expected),
+            ...enabledFlag,
+          });
+        }
+        break;
       case 'header_exists':
         if (r.header.trim()) out.push({ type: 'header_exists', header: r.header.trim(), ...enabledFlag });
         break;
@@ -148,6 +175,17 @@ const FIELD_CONFIG = {
     { key: 'matchValue', placeholder: 'Match value (e.g. SIGNER)' },
     { key: 'checkField', placeholder: 'Field to check (e.g. state)' },
     { key: 'expected', placeholder: 'Expected value (e.g. TO_SIGN)' },
+  ],
+  array_none_equals: [
+    { key: 'path', placeholder: 'Array path (e.g. result.signatures)' },
+    { key: 'checkField', placeholder: 'Field to check (e.g. certificateInfo.trustedStatus)' },
+    { key: 'expected', placeholder: 'Forbidden value (e.g. UNTRUSTED)' },
+  ],
+  array_deep_none_equals: [
+    { key: 'path', placeholder: 'Array path (e.g. result.signatures)' },
+    { key: 'subPath', placeholder: 'Scope to sub-field (optional, e.g. certificateInfo)' },
+    { key: 'key', placeholder: 'Field name to find at any depth (e.g. trustedStatus)' },
+    { key: 'expected', placeholder: 'Forbidden value (e.g. UNTRUSTED)' },
   ],
   header_exists: [{ key: 'header', placeholder: 'Header name (e.g. Content-Type)' }],
   header_equals: [
