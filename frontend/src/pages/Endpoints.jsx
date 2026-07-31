@@ -248,6 +248,7 @@ export default function Endpoints() {
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="card" style={{ padding: 0 }}>
+            <div className="table-scroll-x">
             <table>
               <thead>
                 <tr>
@@ -311,6 +312,7 @@ export default function Endpoints() {
                 )}
               </tbody>
             </table>
+            </div>
           </div>
 
           {error && <div className="card error-text">{error}</div>}

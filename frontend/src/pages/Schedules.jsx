@@ -286,6 +286,7 @@ export default function Schedules() {
       </div>
 
       <div className="card" style={{ padding: 0 }}>
+        <div className="table-scroll-x">
         <table>
           <thead>
             <tr>
@@ -337,6 +338,7 @@ export default function Schedules() {
             {schedules.length === 0 && <tr><td colSpan={7} className="empty-state">No schedules yet.</td></tr>}
           </tbody>
         </table>
+        </div>
       </div>
 
       {viewingSchedule && (

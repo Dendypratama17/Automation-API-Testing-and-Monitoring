@@ -927,6 +927,7 @@ export default function Flows() {
                 <button className="btn-primary" onClick={openNewFlow}>+ New Flow</button>
               </div>
             </div>
+            <div className="table-scroll-x">
             <table>
               <thead>
                 <tr>
@@ -1010,6 +1011,7 @@ export default function Flows() {
                 {flows.length === 0 && <tr><td colSpan={5} className="empty-state">No flows yet.</td></tr>}
               </tbody>
             </table>
+            </div>
           </div>
 
           {error && <div className="card error-text">{error}</div>}

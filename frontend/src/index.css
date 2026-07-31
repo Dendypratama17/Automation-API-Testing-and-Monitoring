@@ -444,7 +444,7 @@ tbody td:last-child, thead th:last-child { padding-right: 20px; }
 
 /* ---------- Scrollable table (fixed height, sticky header) ---------- */
 
-.scroll-table { max-height: 380px; overflow-y: auto; }
+.scroll-table { max-height: 380px; overflow-y: auto; overflow-x: auto; }
 .scroll-table table { border-collapse: separate; border-spacing: 0; }
 .scroll-table thead th {
   position: sticky;
@@ -452,6 +452,12 @@ tbody td:last-child, thead th:last-child { padding-right: 20px; }
   background: var(--surface);
   z-index: 1;
 }
+
+/* A table with fixed-width columns (table-layout: fixed) has no way to
+   shrink on a narrow viewport — without this, columns past the visible
+   width (e.g. an Action column) are simply clipped with no way to reach
+   them. Use on tables that don't need scroll-table's vertical clamping. */
+.table-scroll-x { overflow-x: auto; }
 
 /* ---------- File picker ---------- */
 
