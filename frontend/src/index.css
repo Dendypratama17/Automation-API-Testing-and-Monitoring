@@ -147,7 +147,7 @@ a { color: inherit; }
 
 /* ---------- Forms ---------- */
 
-input[type="text"], input[type="file"]:not([type="file"]), input:not([type]), input[type="number"], input[type="date"],
+input[type="text"], input[type="file"]:not([type="file"]), input:not([type]), input[type="number"], input[type="date"], input[type="password"],
 select, textarea {
   font-family: inherit;
   font-size: 13.5px;
