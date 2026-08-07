@@ -2,6 +2,7 @@ import React from 'react';
 
 const ASSERTION_TYPES = [
   { value: 'status_code', label: 'Status Code' },
+  { value: 'status_code_in', label: 'Status Code (One Of)' },
   { value: 'response_time', label: 'Response Time' },
   { value: 'field_exists', label: 'Field Exists' },
   { value: 'field_not_null', label: 'Field Not Null' },
@@ -59,6 +60,11 @@ export function assertionRowsToArray(rows) {
       case 'status_code':
         if (r.expected.trim()) out.push({ type: 'status_code', expected: Number(r.expected), ...enabledFlag });
         break;
+      case 'status_code_in': {
+        const codes = r.expected.split(',').map((c) => c.trim()).filter(Boolean).map(Number);
+        if (codes.length) out.push({ type: 'status_code_in', expected: codes, ...enabledFlag });
+        break;
+      }
       case 'response_time':
         if (r.max_ms.trim()) out.push({ type: 'response_time', max_ms: Number(r.max_ms), ...enabledFlag });
         break;
@@ -142,6 +148,7 @@ export { emptyAssertionRow };
 // hand-written JSX branch per type.
 const FIELD_CONFIG = {
   status_code: [{ key: 'expected', placeholder: 'Expected status (e.g. 200)', type: 'number' }],
+  status_code_in: [{ key: 'expected', placeholder: 'Comma-separated statuses (e.g. 200, 201, 204)' }],
   response_time: [{ key: 'max_ms', placeholder: 'Max ms (e.g. 5000)', type: 'number' }],
   field_exists: [{ key: 'path', placeholder: 'Field path (e.g. data.id)' }],
   field_not_null: [{ key: 'path', placeholder: 'Field path (e.g. data)' }],

@@ -3,6 +3,7 @@
 // from "against what" (label in normal text, value in mono/dim style).
 const ASSERTION_PARTS = {
   status_code: (a) => ({ label: 'Status code =', value: a.expected }),
+  status_code_in: (a) => ({ label: 'Status code is one of', value: Array.isArray(a.expected) ? a.expected.join(', ') : a.expected }),
   response_time: (a) => ({ label: 'Response time ≤', value: `${a.max_ms}ms` }),
   field_exists: (a) => ({ label: `Field "${a.path}" exists`, value: '' }),
   field_not_null: (a) => ({ label: `Field "${a.path}" is not null`, value: '' }),

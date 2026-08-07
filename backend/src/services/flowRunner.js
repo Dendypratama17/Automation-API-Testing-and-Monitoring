@@ -64,10 +64,16 @@ async function runFlowAndPersist(flow, steps, environment, triggeredBy, schedule
   }
 
   // Flow-level Web Login credential: refreshes the Authorization header of
-  // EVERY step that already has one set (e.g. a stale token baked in from a
-  // curl import), with no per-step assignment needed — unlike the
-  // `auth_credential_id` mechanism above, which only touches the one step
-  // it's explicitly assigned to.
+  // every step whose header is ALREADY Bearer-scheme (e.g. a stale token
+  // baked in from a curl import), with no per-step assignment needed —
+  // unlike the `auth_credential_id` mechanism above, which only touches the
+  // one step it's explicitly assigned to. Deliberately does NOT touch a step
+  // whose Authorization uses a different scheme (Basic, a custom internal
+  // format, ...) — that step may intentionally authenticate against a
+  // different service (e.g. an internal-only endpoint using service-to-
+  // service Basic auth) than the customer-facing steps this credential is
+  // meant to refresh, and blindly overwriting it caused those steps to send
+  // the wrong credential entirely (a 401, not just a stale token).
   if (flow.web_login_credential_id) {
     const credResult = await pool.query(
       `SELECT * FROM auth_credentials WHERE id=$1 AND type='web_login'`,
@@ -78,9 +84,18 @@ async function runFlowAndPersist(flow, steps, environment, triggeredBy, schedule
       try {
         const token = await getWebLoginToken({ ...cred, password: decrypt(cred.password) });
         steps = steps.map((step) => {
+          if (step.skip_web_login_refresh) return step;
           const authKey = Object.keys(step.headers || {}).find((k) => k.toLowerCase() === 'authorization');
           if (!authKey) return step;
-          return { ...step, headers: { ...step.headers, [authKey]: `Bearer ${token}` } };
+          const raw = step.headers[authKey];
+          const isDisabledWrapper = raw && typeof raw === 'object' && raw.__disabled__;
+          const currentValue = isDisabledWrapper ? raw.value : raw;
+          if (typeof currentValue !== 'string' || !/^bearer\s/i.test(currentValue.trim())) return step;
+          const newValue = `Bearer ${token}`;
+          return {
+            ...step,
+            headers: { ...step.headers, [authKey]: isDisabledWrapper ? { ...raw, value: newValue } : newValue },
+          };
         });
       } catch (err) {
         console.error(`[flowRunner] Flow-level Web Login credential "${cred.name}" failed: ${err.message}`);

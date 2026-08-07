@@ -142,7 +142,7 @@ export default function Authorization() {
           />
           <input
             placeholder={editingId ? 'Leave blank to keep current password' : 'Password'}
-            type="text"
+            type="password"
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
             style={editingId ? { minWidth: 220 } : undefined}

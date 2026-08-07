@@ -132,10 +132,12 @@ CREATE TABLE IF NOT EXISTS flow_steps (
   assertions JSONB DEFAULT '[]',  -- optional: [{ "type": "status_code", "expected": 200 }, ...]
   enabled BOOLEAN NOT NULL DEFAULT TRUE, -- unchecked steps are skipped on a full/batch/scheduled run, but can still be run individually
   delay_ms INT NOT NULL DEFAULT 0, -- waited before this step runs — e.g. giving an async backend process time to finish before the next check
+  skip_web_login_refresh BOOLEAN NOT NULL DEFAULT FALSE, -- opt this step out of the flow-level Web Login credential's Authorization refresh (see flowRunner.js) — e.g. a step that intentionally hits a different service with its own Basic/internal auth
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_flow_steps_flow ON flow_steps(flow_id, step_order);
+ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS skip_web_login_refresh BOOLEAN NOT NULL DEFAULT FALSE;
 
 ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS delay_ms INT NOT NULL DEFAULT 0;

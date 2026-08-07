@@ -252,7 +252,7 @@ const emptyStep = (defaultHeaders = []) => {
     name: '', endpoint_id: '', method: '', url_template: '', authCredentialId: '',
     headersRows,
     bodyType: 'json', bodyText: '', bodyRows: [emptyFormRow()],
-    extractRows: [], assertionsRows: [], enabled: true, delayMs: '',
+    extractRows: [], assertionsRows: [], enabled: true, delayMs: '', skipWebLoginRefresh: false,
   };
 };
 
@@ -286,6 +286,7 @@ function stepToPayload(step, endpoints) {
     assertions,
     enabled: step.enabled !== false,
     delay_ms: step.delayMs ? Number(step.delayMs) : 0,
+    skip_web_login_refresh: step.skipWebLoginRefresh === true,
   };
 }
 
@@ -304,6 +305,7 @@ function stepFromApi(s) {
     assertionsRows: objectToAssertionRows(s.assertions),
     enabled: s.enabled !== false,
     delayMs: s.delay_ms ? String(s.delay_ms) : '',
+    skipWebLoginRefresh: s.skip_web_login_refresh === true,
   };
 }
 
@@ -1099,7 +1101,7 @@ export default function Flows() {
                       const cred = authCredentials.find((c) => c.id === s.auth_credential_id);
                       return (
                         <div className="hint" style={{ fontSize: 12.5, marginTop: 6, marginLeft: 32 }}>
-                          Authorization: {cred?.name || `#${s.auth_credential_id}`}{cred?.environment_name ? ` (${cred.environment_name})` : ''}
+                          Authorization: {cred?.name || `#${s.auth_credential_id}`}{cred?.environment_name ? ` (${cred.environment_name})` : ''}{cred && ` — ${cred.type === 'web_login' ? 'Web Login (Bearer)' : 'Basic Auth'}`}
                         </div>
                       );
                     })()}
@@ -1357,10 +1359,20 @@ export default function Flows() {
                         <option value="">None</option>
                         {authCredentials.map((cred) => (
                           <option key={cred.id} value={cred.id}>
-                            {cred.name}{cred.environment_name ? ` (${cred.environment_name})` : ''}
+                            {cred.name}{cred.environment_name ? ` (${cred.environment_name})` : ''} — {cred.type === 'web_login' ? 'Web Login (Bearer)' : 'Basic Auth'}
                           </option>
                         ))}
                       </select>
+                      {editingFlow.web_login_credential_id && (
+                        <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12.5 }}>
+                          <input
+                            type="checkbox"
+                            checked={step.skipWebLoginRefresh === true}
+                            onChange={(e) => handleStepChange(idx, 'skipWebLoginRefresh', e.target.checked)}
+                          />
+                          Don't refresh this step's Authorization from the flow's Web Login credential
+                        </label>
+                      )}
                     </details>
                     )}
 

@@ -74,6 +74,7 @@ const STATUS_EMOJI = { FAIL: '❌', ERROR: '🔥', SCHEMA_DRIFT: '⚠️' };
 // and silently killed every FAIL notification.
 const ASSERTION_LABELS = {
   status_code: (a) => `Expected status <b>${escapeHtml(a.expected)}</b>`,
+  status_code_in: (a) => `Expected status to be one of <b>${escapeHtml(Array.isArray(a.expected) ? a.expected.join(', ') : a.expected)}</b>`,
   response_time: (a) => `Expected response time ≤ <b>${escapeHtml(a.max_ms)}ms</b>`,
   field_exists: (a) => `Expected field <code>${escapeHtml(a.path)}</code> to exist`,
   field_equals: (a) => `Expected <code>${escapeHtml(a.path)}</code> to equal <code>${escapeHtml(String(a.expected))}</code>`,

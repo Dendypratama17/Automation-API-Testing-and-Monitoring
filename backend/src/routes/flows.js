@@ -9,8 +9,8 @@ async function replaceSteps(client, flowId, steps) {
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
     await client.query(
-      `INSERT INTO flow_steps (flow_id, endpoint_id, auth_credential_id, step_order, name, method, url_template, headers, body_template, body_type, extract, assertions, enabled, delay_ms)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11::jsonb,$12::jsonb,$13,$14)`,
+      `INSERT INTO flow_steps (flow_id, endpoint_id, auth_credential_id, step_order, name, method, url_template, headers, body_template, body_type, extract, assertions, enabled, delay_ms, skip_web_login_refresh)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11::jsonb,$12::jsonb,$13,$14,$15)`,
       [
         flowId, s.endpoint_id || null, s.auth_credential_id || null, i, s.name, s.method, s.url_template,
         JSON.stringify(s.headers || {}),
@@ -20,6 +20,7 @@ async function replaceSteps(client, flowId, steps) {
         JSON.stringify(s.assertions || []),
         s.enabled !== false,
         Number(s.delay_ms) || 0,
+        s.skip_web_login_refresh === true,
       ]
     );
   }

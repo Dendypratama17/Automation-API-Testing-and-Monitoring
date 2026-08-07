@@ -206,6 +206,13 @@ function checkAssertions(assertions, response, responseTimeMs) {
     switch (assertion.type) {
       case 'status_code':
         return { ...assertion, passed: response.status === assertion.expected };
+      // Passes if the actual status is ANY of a list of acceptable codes —
+      // e.g. an endpoint that can legitimately return either 200 or 204 —
+      // instead of only ever matching one exact value.
+      case 'status_code_in': {
+        const list = Array.isArray(assertion.expected) ? assertion.expected.map(Number) : [];
+        return { ...assertion, passed: list.includes(response.status) };
+      }
       case 'response_time':
         return { ...assertion, passed: responseTimeMs <= assertion.max_ms };
       case 'field_exists':
