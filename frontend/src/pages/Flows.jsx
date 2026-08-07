@@ -220,13 +220,15 @@ function StepResultRow({ step, isLast }) {
   );
 }
 
-// Unwraps the { __disabled__: true, value } shape a disabled header row is
-// stored as (see KeyValueEditor.jsx) into something readable in a plain
-// JSON viewer, instead of showing the wrapper object as-is.
+// Drops disabled header rows (stored as { __disabled__: true, value }, see
+// KeyValueEditor.jsx) entirely from the read-only View Flow display — a
+// header that won't actually be sent has no business appearing next to the
+// ones that will.
 function headersForDisplay(headers) {
   const out = {};
   for (const [key, value] of Object.entries(headers || {})) {
-    out[key] = value && typeof value === 'object' && value.__disabled__ ? `${value.value} (disabled)` : value;
+    if (value && typeof value === 'object' && value.__disabled__) continue;
+    out[key] = value;
   }
   return out;
 }
@@ -1114,11 +1116,11 @@ export default function Flows() {
                       </div>
                     )}
 
-                    {(s.assertions || []).length > 0 && (
+                    {(s.assertions || []).filter((a) => a.enabled !== false).length > 0 && (
                       <div style={{ marginTop: 14, marginLeft: 32 }}>
                         <span className="field-label">Assertions</span>
                         <div className="stack" style={{ gap: 4, marginTop: 4 }}>
-                          {s.assertions.map((a, i) => {
+                          {s.assertions.filter((a) => a.enabled !== false).map((a, i) => {
                             const parts = describeAssertionParts(a);
                             return (
                               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
