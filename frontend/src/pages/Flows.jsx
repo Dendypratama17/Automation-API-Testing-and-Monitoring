@@ -14,6 +14,7 @@ import ExtractVariableEditor, { arrayToExtractRows, extractRowsToArray } from '.
 import { useConfirm } from '../components/ConfirmProvider.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
 import OptionsMenu from '../components/OptionsMenu.jsx';
+import CredentialSelect from '../components/CredentialSelect.jsx';
 import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
 import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
@@ -593,20 +594,25 @@ export default function Flows() {
     const steps = [...editingFlow.steps];
     const method = ep ? ep.method : steps[idx].method;
     // Seed a default "expected status" assertion so a fresh step already has
-    // a sane pass/fail check — POST creates a resource (201), everything
-    // else just returns it (200). Only added when the step doesn't already
-    // have one, so it never overwrites something the user already set up.
-    //
-    // Exception: orchestrator-eternals/resources/ aggregator endpoints are
-    // POST-shaped RPC calls (e.g. AggregateGetDocumentIndexesByDocumentID)
-    // that just query/read data, not create a resource — always 200 even
-    // though the method is POST.
-    const isAggregatorEndpoint = ep?.path_template?.includes('orchestrator-eternals/resources/');
-    const defaultExpectedStatus = isAggregatorEndpoint ? 200 : (method === 'POST' ? 201 : 200);
-    const hasStatusCodeAssertion = steps[idx].assertionsRows.some((r) => r.type === 'status_code');
+    // a sane pass/fail check — accepting either 200 (a plain read, or a
+    // POST-shaped RPC/aggregator call that only queries data) or 201 (POST
+    // creating a resource) covers both without needing to guess from the
+    // method or special-case aggregator endpoints. Only added when the step
+    // doesn't already have a status assertion, so it never overwrites
+    // something the user already set up.
+    const hasStatusCodeAssertion = steps[idx].assertionsRows.some((r) => r.type === 'status_code' || r.type === 'status_code_in');
     const assertionsRows = ep && !hasStatusCodeAssertion
-      ? [{ ...emptyAssertionRow(), expected: String(defaultExpectedStatus) }, ...steps[idx].assertionsRows]
+      ? [{ ...emptyAssertionRow(), type: 'status_code_in', expected: '200,201' }, ...steps[idx].assertionsRows]
       : steps[idx].assertionsRows;
+    // Default a fresh step's Authorization to the flow's own "Refresh auth
+    // via" credential too — otherwise it silently sends no Authorization
+    // header at all, since that flow-level credential only refreshes a
+    // Bearer header a step already has, it doesn't add one from scratch.
+    // Never overrides a credential the step already has, and skipped for a
+    // step opted out of that flow-level credential.
+    const authCredentialId = ep && !steps[idx].authCredentialId && !steps[idx].skipWebLoginRefresh && editingFlow.web_login_credential_id
+      ? String(editingFlow.web_login_credential_id)
+      : steps[idx].authCredentialId;
     steps[idx] = {
       ...steps[idx],
       endpoint_id: endpointId,
@@ -619,6 +625,7 @@ export default function Flows() {
         : '',
       bodyRows: ep ? objectToFormRows(ep.body_template) : steps[idx].bodyRows,
       assertionsRows,
+      authCredentialId,
     };
     setEditingFlow({ ...editingFlow, steps });
   };
@@ -1183,7 +1190,25 @@ export default function Flows() {
                 </select>
                 <select
                   value={editingFlow.web_login_credential_id ?? ''}
-                  onChange={(e) => setEditingFlow({ ...editingFlow, web_login_credential_id: e.target.value ? Number(e.target.value) : null })}
+                  onChange={(e) => {
+                    const credentialId = e.target.value ? Number(e.target.value) : null;
+                    // Backfill this credential into every step that doesn't
+                    // already have its own Authorization set, so picking it
+                    // here is enough on its own — without this, a step left
+                    // on "None" would send no Authorization header at all,
+                    // since this credential only refreshes a Bearer header a
+                    // step already has, it doesn't add one from scratch.
+                    // Never overrides a credential a step already has, and
+                    // skips a step opted out via "Don't refresh...".
+                    const steps = credentialId
+                      ? editingFlow.steps.map((step) => (
+                        !step.authCredentialId && !step.skipWebLoginRefresh
+                          ? { ...step, authCredentialId: String(credentialId) }
+                          : step
+                      ))
+                      : editingFlow.steps;
+                    setEditingFlow({ ...editingFlow, web_login_credential_id: credentialId, steps });
+                  }}
                   style={{ flexShrink: 0 }}
                   title="On every run, refreshes the Authorization header of every step that already has one set — no per-step assignment needed."
                 >
@@ -1351,18 +1376,13 @@ export default function Flows() {
                     {step.endpoint_id && (
                     <details style={{ marginTop: 18, marginBottom: 14 }}>
                       <summary className="field-label"><ChevronIcon className="chevron" />Authorization</summary>
-                      <select
-                        value={step.authCredentialId}
-                        onChange={(e) => handleStepChange(idx, 'authCredentialId', e.target.value)}
-                        style={{ width: '100%', marginTop: 8 }}
-                      >
-                        <option value="">None</option>
-                        {authCredentials.map((cred) => (
-                          <option key={cred.id} value={cred.id}>
-                            {cred.name}{cred.environment_name ? ` (${cred.environment_name})` : ''} — {cred.type === 'web_login' ? 'Web Login (Bearer)' : 'Basic Auth'}
-                          </option>
-                        ))}
-                      </select>
+                      <div style={{ marginTop: 8 }}>
+                        <CredentialSelect
+                          credentials={authCredentials}
+                          value={step.authCredentialId}
+                          onChange={(id) => handleStepChange(idx, 'authCredentialId', id)}
+                        />
+                      </div>
                       {editingFlow.web_login_credential_id && (
                         <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12.5 }}>
                           <input
