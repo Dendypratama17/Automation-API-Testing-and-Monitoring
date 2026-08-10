@@ -66,6 +66,13 @@ CREATE TABLE IF NOT EXISTS default_headers (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- A key like X-Token ends up with several near-identical-looking values (one
+-- per test account), with nothing about the raw string itself saying which
+-- account/environment it belongs to — label + environment_id let the picker
+-- show e.g. "CHE7573 (STG)" next to the value instead of just the raw token.
+ALTER TABLE default_headers ADD COLUMN IF NOT EXISTS label VARCHAR(255);
+ALTER TABLE default_headers ADD COLUMN IF NOT EXISTS environment_id INT REFERENCES environments(id) ON DELETE SET NULL;
+
 CREATE TABLE IF NOT EXISTS endpoint_schemas (
   id SERIAL PRIMARY KEY,
   endpoint_id INT REFERENCES endpoints(id) ON DELETE CASCADE,

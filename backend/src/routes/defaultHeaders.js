@@ -8,7 +8,12 @@ const { syncDefaultHeadersToEndpoints } = require('../services/defaultHeaders');
 // sharing a key sit together by convention (dragging keeps them grouped in
 // practice), and within a key, whichever sorts first is the auto-fill default.
 router.get('/', catchAsync(async (req, res) => {
-  const result = await pool.query('SELECT * FROM default_headers ORDER BY sort_order ASC, id ASC');
+  const result = await pool.query(
+    `SELECT dh.*, env.name as environment_name
+     FROM default_headers dh
+     LEFT JOIN environments env ON env.id = dh.environment_id
+     ORDER BY dh.sort_order ASC, dh.id ASC`
+  );
   res.json(result.rows);
 }));
 
@@ -34,32 +39,40 @@ router.put('/reorder', catchAsync(async (req, res) => {
     client.release();
   }
   await syncDefaultHeadersToEndpoints();
-  const result = await pool.query('SELECT * FROM default_headers ORDER BY sort_order ASC, id ASC');
+  const result = await pool.query(
+    `SELECT dh.*, env.name as environment_name
+     FROM default_headers dh
+     LEFT JOIN environments env ON env.id = dh.environment_id
+     ORDER BY dh.sort_order ASC, dh.id ASC`
+  );
   res.json(result.rows);
 }));
 
 // Adding a default immediately backfills it onto every endpoint missing that
 // key — placed at the end of the order (lowest priority as a "default").
 router.post('/', catchAsync(async (req, res) => {
-  const { key, value } = req.body;
+  const { key, value, label = null, environment_id = null } = req.body;
   if (!key?.trim() || !value?.trim()) return res.status(400).json({ error: 'key and value are required' });
 
   const maxOrderResult = await pool.query('SELECT COALESCE(MAX(sort_order), 0) + 1 as next FROM default_headers');
   const result = await pool.query(
-    'INSERT INTO default_headers (key, value, sort_order) VALUES ($1,$2,$3) RETURNING *',
-    [key.trim(), value.trim(), maxOrderResult.rows[0].next]
+    `INSERT INTO default_headers (key, value, label, environment_id, sort_order)
+     VALUES ($1,$2,$3,$4,$5)
+     RETURNING *, (SELECT name FROM environments WHERE id = $4) as environment_name`,
+    [key.trim(), value.trim(), label?.trim() || null, environment_id || null, maxOrderResult.rows[0].next]
   );
   await syncDefaultHeadersToEndpoints();
   res.status(201).json(result.rows[0]);
 }));
 
 router.put('/:id', catchAsync(async (req, res) => {
-  const { key, value } = req.body;
+  const { key, value, label = null, environment_id = null } = req.body;
   if (!key?.trim() || !value?.trim()) return res.status(400).json({ error: 'key and value are required' });
 
   const result = await pool.query(
-    'UPDATE default_headers SET key=$1, value=$2 WHERE id=$3 RETURNING *',
-    [key.trim(), value.trim(), req.params.id]
+    `UPDATE default_headers SET key=$1, value=$2, label=$3, environment_id=$4 WHERE id=$5
+     RETURNING *, (SELECT name FROM environments WHERE id = $4) as environment_name`,
+    [key.trim(), value.trim(), label?.trim() || null, environment_id || null, req.params.id]
   );
   if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
   await syncDefaultHeadersToEndpoints();

@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { getDefaultHeaders, createDefaultHeader, updateDefaultHeader, deleteDefaultHeader, reorderDefaultHeaders } from '../api/client';
+import { getDefaultHeaders, createDefaultHeader, updateDefaultHeader, deleteDefaultHeader, reorderDefaultHeaders, getEnvironments } from '../api/client';
 import { TrashIcon, EditIcon, GripIcon } from '../components/icons.jsx';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
 import OptionsMenu from '../components/OptionsMenu.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
 
-const emptyForm = { key: '', value: '' };
+const emptyForm = { key: '', value: '', label: '', environment_id: '' };
+const emptyValueForm = { value: '', label: '', environment_id: '' };
 
 // Groups the flat (already sort_order-sorted) rows into one entry per key —
 // each key gets one table row with all its values shown as chips, instead of
@@ -29,22 +30,23 @@ export default function DefaultHeaders() {
   const confirm = useConfirm();
   const showToast = useToast();
   const [headers, setHeaders] = useState([]);
+  const [environments, setEnvironments] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
   const [draggedKey, setDraggedKey] = useState(null);
   const [dragOverKey, setDragOverKey] = useState(null);
   const [addingValueForKey, setAddingValueForKey] = useState(null);
-  const [newValueInput, setNewValueInput] = useState('');
+  const [newValueForm, setNewValueForm] = useState(emptyValueForm);
 
   const load = () => getDefaultHeaders().then(setHeaders);
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); getEnvironments().then(setEnvironments); }, []);
 
   const startEdit = (h) => {
     setError('');
     setAddingValueForKey(null);
     setEditingId(h.id);
-    setForm({ key: h.key, value: h.value });
+    setForm({ key: h.key, value: h.value, label: h.label || '', environment_id: h.environment_id || '' });
   };
 
   const cancelEdit = () => {
@@ -113,19 +115,24 @@ export default function DefaultHeaders() {
     setError('');
     setEditingId(null);
     setAddingValueForKey(key);
-    setNewValueInput('');
+    setNewValueForm(emptyValueForm);
   };
   const cancelAddValue = () => {
     setAddingValueForKey(null);
-    setNewValueInput('');
+    setNewValueForm(emptyValueForm);
   };
   const confirmAddValue = async (key) => {
-    if (!newValueInput.trim()) return;
+    if (!newValueForm.value.trim()) return;
     setError('');
     try {
-      await createDefaultHeader({ key, value: newValueInput.trim() });
+      await createDefaultHeader({
+        key,
+        value: newValueForm.value.trim(),
+        label: newValueForm.label.trim() || null,
+        environment_id: newValueForm.environment_id || null,
+      });
       setAddingValueForKey(null);
-      setNewValueInput('');
+      setNewValueForm(emptyValueForm);
       load();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
@@ -138,7 +145,9 @@ export default function DefaultHeaders() {
         Headers automatically added to every endpoint (existing ones and new ones imported from cURL/Postman) —
         unless the endpoint already has a header with the same name, in which case the imported value always wins.
         Give a key multiple values with "+ Add value" below — all of them become that header's dropdown choices in
-        the Flow step / Endpoint editors. Drag a key's row to reorder it relative to other keys.
+        the Flow step / Endpoint editors. Drag a key's row to reorder it relative to other keys. A value's Name/Env
+        is optional — set it when a key (like X-Token) has one value per test account, so the dropdown shows which
+        account/environment each value belongs to instead of just the raw string.
       </p>
 
       {error && <div className="card error-text">{error}</div>}
@@ -148,6 +157,11 @@ export default function DefaultHeaders() {
         <div className="toolbar">
           <input placeholder="Key (e.g. X-Platform-Name)" value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} />
           <input placeholder="Value (e.g. Web)" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} style={{ flex: 1 }} />
+          <input placeholder="Name (optional, e.g. CHE7573)" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
+          <select value={form.environment_id} onChange={(e) => setForm({ ...form, environment_id: e.target.value })}>
+            <option value="">No Env</option>
+            {environments.map((env) => <option key={env.id} value={env.id}>{env.name}</option>)}
+          </select>
         </div>
         <div className="toolbar" style={{ marginTop: 12 }}>
           <button className="btn-primary" onClick={handleSubmit}>{editingId ? 'Save' : 'Add'}</button>
@@ -196,7 +210,20 @@ export default function DefaultHeaders() {
                           borderRadius: 8, padding: '5px 4px 5px 8px',
                         }}
                       >
-                        <span className="mono" style={{ fontSize: 12.5 }}>{v.value}</span>
+                        <span style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 6, maxWidth: 320 }}>
+                          {v.label && (
+                            <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              {v.label}{v.environment_name ? ` (${v.environment_name})` : ''}
+                            </span>
+                          )}
+                          <span
+                            className="mono hint"
+                            title={v.value}
+                            style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          >
+                            {v.value}
+                          </span>
+                        </span>
                         <span className="value-chip-options">
                           <OptionsMenu
                             items={[
@@ -213,14 +240,31 @@ export default function DefaultHeaders() {
                         <input
                           autoFocus
                           placeholder="New value"
-                          value={newValueInput}
-                          onChange={(e) => setNewValueInput(e.target.value)}
+                          value={newValueForm.value}
+                          onChange={(e) => setNewValueForm({ ...newValueForm, value: e.target.value })}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') confirmAddValue(group.key);
                             if (e.key === 'Escape') cancelAddValue();
                           }}
                           style={{ width: 160 }}
                         />
+                        <input
+                          placeholder="Name (optional)"
+                          value={newValueForm.label}
+                          onChange={(e) => setNewValueForm({ ...newValueForm, label: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') confirmAddValue(group.key);
+                            if (e.key === 'Escape') cancelAddValue();
+                          }}
+                          style={{ width: 130 }}
+                        />
+                        <select
+                          value={newValueForm.environment_id}
+                          onChange={(e) => setNewValueForm({ ...newValueForm, environment_id: e.target.value })}
+                        >
+                          <option value="">No Env</option>
+                          {environments.map((env) => <option key={env.id} value={env.id}>{env.name}</option>)}
+                        </select>
                         <button className="btn-primary" onClick={() => confirmAddValue(group.key)}>Add</button>
                         <button onClick={cancelAddValue}>Cancel</button>
                       </div>

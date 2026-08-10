@@ -389,6 +389,9 @@ button.btn-danger-solid:hover { background: #f65f5f; border-color: #f65f5f; }
 .cred-select-item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cred-select-check { flex-shrink: 0; width: 12px; height: 12px; display: flex; color: var(--accent); }
 
+.header-value-option-plain { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge.truncate { max-width: 260px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+
 /* A chip's own Options (⋮) trigger only appears on hover/focus — keeps a row
    of many small chips (e.g. Default Headers values) from looking cluttered
    with a button on every single one at rest. */

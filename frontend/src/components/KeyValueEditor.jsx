@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getDefaultHeaders } from '../api/client';
+import HeaderValueSelect from './HeaderValueSelect.jsx';
 
 // A disabled row is still saved (wrapped, so it round-trips through the
 // plain {key: value} JSONB column) instead of being silently dropped —
@@ -40,7 +41,9 @@ export default function KeyValueEditor({ rows, onChange, keyPlaceholder = 'Key',
       for (const h of headers) {
         const lower = h.key.trim().toLowerCase();
         if (!grouped[lower]) grouped[lower] = [];
-        if (!grouped[lower].includes(h.value)) grouped[lower].push(h.value);
+        if (!grouped[lower].some((o) => o.value === h.value)) {
+          grouped[lower].push({ value: h.value, label: h.label || null, environment_name: h.environment_name || null });
+        }
       }
       setValueOptionsByKey(grouped);
     }).catch(() => {});
@@ -55,7 +58,7 @@ export default function KeyValueEditor({ rows, onChange, keyPlaceholder = 'Key',
     // matching the <select>'s value, so the browser silently falls back to
     // displaying the first option instead, even though nothing was actually
     // selected/saved.
-    return options.includes(currentValue) ? options : [currentValue, ...options];
+    return options.some((o) => o.value === currentValue) ? options : [{ value: currentValue, label: null, environment_name: null }, ...options];
   };
 
   const update = (idx, field, value) => {
@@ -80,9 +83,7 @@ export default function KeyValueEditor({ rows, onChange, keyPlaceholder = 'Key',
             />
             <input placeholder={keyPlaceholder} value={row.key} onChange={(e) => update(idx, 'key', e.target.value)} style={{ minWidth: 0 }} />
             {valueOptions ? (
-              <select value={row.value} onChange={(e) => update(idx, 'value', e.target.value)} style={{ minWidth: 0 }}>
-                {valueOptions.map((opt) => <option key={opt} value={opt}>{opt || '(empty)'}</option>)}
-              </select>
+              <HeaderValueSelect options={valueOptions} value={row.value} onChange={(v) => update(idx, 'value', v)} />
             ) : (
               <input placeholder={valuePlaceholder} value={row.value} onChange={(e) => update(idx, 'value', e.target.value)} style={{ minWidth: 0 }} />
             )}
