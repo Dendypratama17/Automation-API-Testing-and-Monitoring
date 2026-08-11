@@ -339,25 +339,6 @@ button.btn-danger-solid:hover { background: #f65f5f; border-color: #f65f5f; }
 .options-menu-item.danger:hover { background: var(--fail-bg); }
 .options-menu-divider { height: 1px; background: var(--border); margin: 4px 6px; }
 
-.cred-select-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 10px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  font-size: 13px;
-  cursor: pointer;
-  text-align: left;
-}
-.cred-select-trigger:hover { border-color: var(--accent); }
-.cred-select-trigger-label { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
-.cred-select-trigger-label > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cred-select-trigger-placeholder { color: var(--text-dim); }
 .cred-select-list {
   z-index: 100;
   background: var(--surface);
@@ -391,6 +372,49 @@ button.btn-danger-solid:hover { background: #f65f5f; border-color: #f65f5f; }
 
 .header-value-option-plain { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge.truncate { max-width: 260px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+
+/* Text input + optional "pick a known value" dropdown toggle, styled as one
+   merged control — typing a brand-new value always works; the dropdown (see
+   HeaderValueSelect) is just a shortcut for filling in a value that's
+   already been named under Config > Default Headers. */
+.cred-select-combo {
+  display: flex;
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.cred-select-combo:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+input.cred-select-combo-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  padding: 8px 10px;
+  font-size: 13.5px;
+  color: var(--text);
+  outline: none;
+}
+.cred-select-combo-toggle {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border);
+  padding: 8px;
+  cursor: pointer;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+}
+.cred-select-combo-toggle:hover { color: var(--text); background: var(--surface-3); }
+
+/* Name/env is the identifying part — it keeps its natural width instead of
+   sharing flex:1 with the value pill, which would truncate it down to a
+   sliver whenever the raw value is a long hash. The value pill takes
+   whatever's left and truncates first. */
+.header-value-item-name { flex-shrink: 0; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.header-value-item-value { flex: 1; min-width: 0; max-width: none; overflow: hidden; text-overflow: ellipsis; }
 
 /* A chip's own Options (⋮) trigger only appears on hover/focus — keeps a row
    of many small chips (e.g. Default Headers values) from looking cluttered

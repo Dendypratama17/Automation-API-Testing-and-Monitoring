@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../db/pool');
 const catchAsync = require('../utils/catchAsync');
 const { runFlowAndPersist } = require('../services/flowRunner');
+const { parseCurl, toPathTemplate } = require('../services/curlParser');
 
 async function replaceSteps(client, flowId, steps) {
   await client.query('DELETE FROM flow_steps WHERE flow_id=$1', [flowId]);
@@ -25,6 +26,32 @@ async function replaceSteps(client, flowId, steps) {
     );
   }
 }
+
+// Parses a curl command into a step's fields (method/url/headers/body)
+// without creating an Endpoint row — used by the Flow step editor's "Paste
+// curl" option to fill in a step directly, for a one-off request that
+// doesn't need its own reusable Endpoint template. URL gets the same
+// {{base_url}}-templating an Endpoint import would get, so the step still
+// runs correctly across environments instead of only against whichever
+// environment the pasted curl happened to be captured from.
+router.post('/parse-curl', catchAsync(async (req, res) => {
+  const { curl } = req.body;
+  if (!curl?.trim()) return res.status(400).json({ error: 'curl string is required' });
+
+  const parsed = parseCurl(curl);
+  if (!parsed.url) return res.status(400).json({ error: 'Could not detect URL in curl command' });
+
+  const envResult = await pool.query('SELECT * FROM environments');
+  const urlTemplate = toPathTemplate(parsed.url, envResult.rows);
+
+  res.json({
+    method: parsed.method,
+    url_template: urlTemplate,
+    headers: parsed.headers,
+    body: parsed.body,
+    is_multipart: parsed.isMultipart === true,
+  });
+}));
 
 // LIST flows, optionally filtered by folder (folder_id=null for uncategorized)
 router.get('/', catchAsync(async (req, res) => {

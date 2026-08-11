@@ -335,8 +335,20 @@ async function executeFlow(flow, steps, environment, previousSchemas = {}, authC
 
     const url = resolveDeep(step.url_template, variables);
     const headers = resolveDeep(activeHeaders(step.headers), variables);
-    if (step.auth_credential_id && authCredentials[step.auth_credential_id]) {
-      const cred = authCredentials[step.auth_credential_id];
+    // A step with its own Authorization credential always uses that. A step
+    // with NONE set falls back to the flow's "Refresh auth via" credential
+    // instead of going out with no Authorization header at all — unless it
+    // opted out (skip_web_login_refresh), or it already carries a raw header
+    // in some OTHER scheme (Basic, a custom internal format, ...), which
+    // means it intentionally authenticates against a different service than
+    // whatever this flow-level credential is meant to cover.
+    const existingAuthKey = Object.keys(headers).find((k) => k.toLowerCase() === 'authorization');
+    const existingAuthValue = existingAuthKey ? String(headers[existingAuthKey] ?? '').trim() : '';
+    const hasConflictingAuthScheme = existingAuthValue !== '' && !/^bearer\s/i.test(existingAuthValue);
+    const effectiveCredId = step.auth_credential_id
+      || (!step.skip_web_login_refresh && !hasConflictingAuthScheme ? flow.web_login_credential_id : null);
+    if (effectiveCredId && authCredentials[effectiveCredId]) {
+      const cred = authCredentials[effectiveCredId];
       if (cred.type === 'web_login') {
         headers['Authorization'] = `Bearer ${cred.token}`;
       } else {

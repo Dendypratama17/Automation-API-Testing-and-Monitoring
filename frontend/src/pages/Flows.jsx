@@ -3,6 +3,7 @@ import {
   getFolders, createFolder, updateFolder, deleteFolder,
   getFlows, getFlow, createFlow, updateFlow, deleteFlow, duplicateFlow, reorderFlows,
   runFlow, batchRunFlows, runFlowStep, updateFlowStep, updateAllFlowSteps, getEndpoints, getEnvironments, getAuthCredentials, getDefaultHeaders,
+  parseCurlForStep,
 } from '../api/client';
 import JsonBlock from '../components/JsonBlock.jsx';
 import KeyValueEditor, { objectToRows, rowsToObject } from '../components/KeyValueEditor.jsx';
@@ -14,7 +15,7 @@ import ExtractVariableEditor, { arrayToExtractRows, extractRowsToArray } from '.
 import { useConfirm } from '../components/ConfirmProvider.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
 import OptionsMenu from '../components/OptionsMenu.jsx';
-import CredentialSelect from '../components/CredentialSelect.jsx';
+import AuthorizationField from '../components/AuthorizationField.jsx';
 import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
 import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
@@ -53,17 +54,6 @@ function playRunResultSound(status) {
     setTimeout(() => ctx.close(), (notes.length * 0.12 + 0.3) * 1000);
   } catch {
     // audio isn't critical — never let it break the run flow
-  }
-}
-
-// Just the path, not the full {{base_url}}-resolved URL — keeps the run
-// result compact and readable (matches the Dashboard's Resource column).
-function resourcePath(url) {
-  try {
-    const u = new URL(url);
-    return u.pathname + u.search;
-  } catch {
-    return url;
   }
 }
 
@@ -137,7 +127,7 @@ function StepResultRow({ step, isLast }) {
         <span className={`badge ${step.status.toLowerCase()}`}>{step.status}</span>
       </div>
       <div className="mono hint" style={{ fontSize: 12, marginTop: 6 }}>
-        {step.request_method} {resourcePath(step.request_url)}
+        {step.request_method} {step.request_url}
       </div>
       <div className="hint" style={{ display: 'flex', gap: 16, fontSize: 12.5, marginTop: 6, flexWrap: 'wrap' }}>
         <span>Status: {step.response_status_code ?? '-'}</span>
@@ -234,6 +224,25 @@ function headersForDisplay(headers) {
   return out;
 }
 
+// Reads/writes the step's raw "Authorization" header row directly — lets
+// AuthorizationField's manual-input side live in the same headersRows/
+// KeyValueEditor storage as every other header, instead of a separate field
+// that Headers and Assertions would then need to know to also look at.
+function getAuthHeaderValue(headersRows) {
+  const row = headersRows.find((r) => r.key.trim().toLowerCase() === 'authorization');
+  return row ? row.value : '';
+}
+function setAuthHeaderValue(headersRows, value) {
+  const idx = headersRows.findIndex((r) => r.key.trim().toLowerCase() === 'authorization');
+  if (idx === -1) {
+    if (!value) return headersRows;
+    return [...headersRows, { key: 'Authorization', value, enabled: true }];
+  }
+  const next = [...headersRows];
+  next[idx] = { ...next[idx], value, enabled: true };
+  return next;
+}
+
 // `defaultHeaders` comes from Config > Default Headers (see getDefaultHeaders)
 // so a brand-new step always starts with whatever's configured there, instead
 // of a hardcoded list that could silently drift out of sync with it. A key
@@ -258,8 +267,10 @@ const emptyStep = (defaultHeaders = []) => {
 };
 
 function stepToPayload(step, endpoints) {
-  if (!step.endpoint_id) throw new Error(`Step "${step.name || '(unnamed)'}" hasn't selected an endpoint`);
-  const endpoint = endpoints.find((e) => e.id === Number(step.endpoint_id));
+  if (!step.endpoint_id && !step.url_template) {
+    throw new Error(`Step "${step.name || '(unnamed)'}" hasn't selected an endpoint or pasted a curl command`);
+  }
+  const endpoint = step.endpoint_id ? endpoints.find((e) => e.id === Number(step.endpoint_id)) : null;
   const name = step.name.trim() || endpoint?.name || 'Untitled step';
   const headers = rowsToObject(step.headersRows);
   let body_template = null;
@@ -275,7 +286,7 @@ function stepToPayload(step, endpoints) {
   const assertions = assertionRowsToArray(step.assertionsRows);
 
   return {
-    endpoint_id: Number(step.endpoint_id),
+    endpoint_id: step.endpoint_id ? Number(step.endpoint_id) : null,
     auth_credential_id: step.authCredentialId ? Number(step.authCredentialId) : null,
     name,
     method: step.method,
@@ -328,6 +339,10 @@ export default function Flows() {
   const [viewingFlow, setViewingFlow] = useState(null);
   const [expandedStep, setExpandedStep] = useState(0);
   const [stepErrors, setStepErrors] = useState({});
+  const [curlPasteIdx, setCurlPasteIdx] = useState(null);
+  const [curlPasteText, setCurlPasteText] = useState('');
+  const [curlPasteError, setCurlPasteError] = useState('');
+  const [curlPasteLoading, setCurlPasteLoading] = useState(false);
   const [flowNameError, setFlowNameError] = useState(false);
   const flowNameRef = useRef(null);
   const [error, setError] = useState('');
@@ -538,6 +553,20 @@ export default function Flows() {
     setEditingFlow({ ...editingFlow, steps });
   };
 
+  // AuthorizationField's credentialId and rawValue changes must land in one
+  // update — two separate handleStepChange calls in the same tick would both
+  // read the same not-yet-re-rendered `editingFlow`, so the second call's
+  // result would overwrite the first's instead of combining with it.
+  const handleAuthorizationFieldChange = (idx, patch) => {
+    const steps = [...editingFlow.steps];
+    const step = steps[idx];
+    const next = { ...step };
+    if ('credentialId' in patch) next.authCredentialId = patch.credentialId;
+    if ('rawValue' in patch) next.headersRows = setAuthHeaderValue(step.headersRows, patch.rawValue);
+    steps[idx] = next;
+    setEditingFlow({ ...editingFlow, steps });
+  };
+
   const handleToggleAllStepsEditing = (enabled) => {
     setEditingFlow({ ...editingFlow, steps: editingFlow.steps.map((s) => ({ ...s, enabled })) });
   };
@@ -630,6 +659,74 @@ export default function Flows() {
     setEditingFlow({ ...editingFlow, steps });
   };
 
+  const startCurlPaste = (idx) => {
+    setCurlPasteIdx(idx);
+    setCurlPasteText('');
+    setCurlPasteError('');
+  };
+  const cancelCurlPaste = () => {
+    setCurlPasteIdx(null);
+    setCurlPasteText('');
+    setCurlPasteError('');
+  };
+
+  // Fills a step directly from a pasted curl command instead of picking a
+  // saved Endpoint — for a one-off request that doesn't need its own
+  // reusable Endpoint template. Mirrors handleSelectEndpoint's auto-fill
+  // (default status assertion, flow-level Authorization fallback), except
+  // when the curl itself already carries a real Authorization header — that
+  // was deliberately captured for this exact request, so it's kept as-is
+  // (skip_web_login_refresh) instead of getting silently swapped for the
+  // flow's Web Login credential on the next run.
+  const handleParseCurlForStep = async (idx) => {
+    if (!curlPasteText.trim()) return;
+    setCurlPasteError('');
+    setCurlPasteLoading(true);
+    try {
+      const parsed = await parseCurlForStep(curlPasteText);
+      const steps = [...editingFlow.steps];
+      const authHeaderKey = Object.keys(parsed.headers || {}).find((k) => k.toLowerCase() === 'authorization');
+      const hasAuthHeader = authHeaderKey && String(parsed.headers[authHeaderKey] || '').trim();
+
+      const hasStatusCodeAssertion = steps[idx].assertionsRows.some((r) => r.type === 'status_code' || r.type === 'status_code_in');
+      const assertionsRows = !hasStatusCodeAssertion
+        ? [{ ...emptyAssertionRow(), type: 'status_code_in', expected: '200,201' }, ...steps[idx].assertionsRows]
+        : steps[idx].assertionsRows;
+
+      // A step's own `authCredentialId` always wins over a raw Authorization
+      // header at run time — so if the curl came with its own Authorization,
+      // any credential this step already had (even one that was auto-filled
+      // moments ago from the flow's "Refresh auth via") must be cleared, or
+      // the header we just pasted would be silently ignored in favor of it.
+      const authCredentialId = hasAuthHeader
+        ? ''
+        : (!steps[idx].authCredentialId && !steps[idx].skipWebLoginRefresh && editingFlow.web_login_credential_id
+          ? String(editingFlow.web_login_credential_id)
+          : steps[idx].authCredentialId);
+
+      const bodyIsObject = parsed.body && typeof parsed.body === 'object';
+      steps[idx] = {
+        ...steps[idx],
+        endpoint_id: '',
+        method: parsed.method,
+        url_template: parsed.url_template,
+        headersRows: objectToRows(parsed.headers),
+        bodyType: parsed.is_multipart ? 'form-data' : 'json',
+        bodyText: parsed.is_multipart ? '' : (bodyIsObject ? JSON.stringify(parsed.body, null, 2) : (parsed.body || '')),
+        bodyRows: parsed.is_multipart ? objectToFormRows(parsed.body) : [emptyFormRow()],
+        assertionsRows,
+        authCredentialId,
+        skipWebLoginRefresh: hasAuthHeader ? true : steps[idx].skipWebLoginRefresh,
+      };
+      setEditingFlow({ ...editingFlow, steps });
+      setCurlPasteIdx(null);
+      setCurlPasteText('');
+    } catch (err) {
+      setCurlPasteError(err.response?.data?.error || err.message);
+    } finally {
+      setCurlPasteLoading(false);
+    }
+  };
 
   const refreshFlowList = () => loadFlows(selectedFolderId === 'all' ? undefined : selectedFolderId);
 
@@ -642,7 +739,7 @@ export default function Flows() {
     const errors = {};
     editingFlow.steps.forEach((step, idx) => {
       const e = {};
-      if (!step.endpoint_id) e.endpoint = true;
+      if (!step.endpoint_id && !step.url_template) e.endpoint = true;
       if (Object.keys(e).length) errors[idx] = e;
     });
     setStepErrors(errors);
@@ -887,8 +984,9 @@ export default function Flows() {
   };
 
   // Save Flow stays disabled (and quiet) until every required field is
-  // actually filled in — a name, and every step pointed at an endpoint.
-  const canSaveFlow = !!(editingFlow && editingFlow.name.trim() && editingFlow.steps.every((s) => s.endpoint_id));
+  // actually filled in — a name, and every step pointed at either an
+  // endpoint or a pasted curl command.
+  const canSaveFlow = !!(editingFlow && editingFlow.name.trim() && editingFlow.steps.every((s) => s.endpoint_id || s.url_template));
 
   const folderNameById = Object.fromEntries(endpointFolders.map((f) => [f.id, f.name]));
   const endpointsByFolder = endpoints.reduce((acc, ep) => {
@@ -1088,6 +1186,14 @@ export default function Flows() {
                       <span className="step-number-badge" style={{ opacity: s.enabled === false ? 0.5 : 1 }}>{idx + 1}</span>
                       <b style={{ opacity: s.enabled === false ? 0.5 : 1, textDecoration: s.enabled === false ? 'line-through' : undefined }}>{s.name}</b>
                       {Number(s.delay_ms) > 0 && <span className="hint" title="Delay before this step runs">⏱ {formatDelaySeconds(s.delay_ms)}s</span>}
+                      {s.auth_credential_id && (() => {
+                        const cred = authCredentials.find((c) => c.id === s.auth_credential_id);
+                        return (
+                          <span className="hint" title="Authorization">
+                            🔐 {cred?.name || `#${s.auth_credential_id}`}{cred?.environment_name ? ` (${cred.environment_name})` : ''}
+                          </span>
+                        );
+                      })()}
                       {s.enabled === false && <span className="hint">Skipped</span>}
                       <button
                         className="btn-icon"
@@ -1280,6 +1386,14 @@ export default function Flows() {
                         <span style={{ fontWeight: 600, opacity: step.enabled === false ? 0.5 : 1, textDecoration: step.enabled === false ? 'line-through' : undefined }}>{step.name || 'Untitled step'}</span>
                         {step.method && <span className="hint mono">{step.method}</span>}
                         {Number(step.delayMs) > 0 && <span className="hint" title="Delay before this step runs">⏱ {formatDelaySeconds(step.delayMs)}s</span>}
+                        {step.authCredentialId && (() => {
+                          const cred = authCredentials.find((c) => String(c.id) === String(step.authCredentialId));
+                          return (
+                            <span className="hint" title="Authorization">
+                              🔐 {cred?.name || `#${step.authCredentialId}`}{cred?.environment_name ? ` (${cred.environment_name})` : ''}
+                            </span>
+                          );
+                        })()}
                         {step.enabled === false && <span className="hint">Skipped</span>}
                         <div style={{ marginLeft: 'auto' }}>
                           <OptionsMenu
@@ -1338,7 +1452,7 @@ export default function Flows() {
                           </optgroup>
                         ))}
                       </select>
-                      {step.endpoint_id && (
+                      {(step.endpoint_id || step.url_template) && (
                         <select
                           value={step.method}
                           onChange={(e) => handleStepChange(idx, 'method', e.target.value)}
@@ -1356,7 +1470,41 @@ export default function Flows() {
                           style={{ flex: 1, minWidth: 0 }}
                         />
                       )}
+                      <button
+                        type="button"
+                        className="btn-quiet"
+                        style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+                        onClick={() => (curlPasteIdx === idx ? cancelCurlPaste() : startCurlPaste(idx))}
+                        title="Fill this step directly from a pasted curl command instead of picking a saved endpoint"
+                      >
+                        {curlPasteIdx === idx ? 'Cancel curl' : 'Paste curl'}
+                      </button>
                     </div>
+
+                    {curlPasteIdx === idx && (
+                      <div className="panel" style={{ marginBottom: 14, padding: 12 }}>
+                        <textarea
+                          autoFocus
+                          placeholder="Paste a curl command here..."
+                          value={curlPasteText}
+                          onChange={(e) => setCurlPasteText(e.target.value)}
+                          rows={6}
+                          className="mono"
+                          style={{ width: '100%' }}
+                        />
+                        {curlPasteError && <div className="hint" style={{ color: 'var(--fail)', marginTop: 6 }}>{curlPasteError}</div>}
+                        <div className="toolbar" style={{ marginTop: 8 }}>
+                          <button
+                            className="btn-primary"
+                            disabled={curlPasteLoading || !curlPasteText.trim()}
+                            onClick={() => handleParseCurlForStep(idx)}
+                          >
+                            {curlPasteLoading ? 'Parsing...' : 'Parse & Fill Step'}
+                          </button>
+                          <button onClick={cancelCurlPaste}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="toolbar" style={{ marginBottom: 8 }}>
                       <label className="hint" style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}>Delay before this step</label>
@@ -1373,14 +1521,15 @@ export default function Flows() {
                       <span className="hint" style={{ fontSize: 12.5 }}>s</span>
                     </div>
 
-                    {step.endpoint_id && (
+                    {(step.endpoint_id || step.url_template) && (
                     <details style={{ marginTop: 18, marginBottom: 14 }}>
                       <summary className="field-label"><ChevronIcon className="chevron" />Authorization</summary>
                       <div style={{ marginTop: 8 }}>
-                        <CredentialSelect
+                        <AuthorizationField
                           credentials={authCredentials}
-                          value={step.authCredentialId}
-                          onChange={(id) => handleStepChange(idx, 'authCredentialId', id)}
+                          credentialId={step.authCredentialId}
+                          rawValue={getAuthHeaderValue(step.headersRows)}
+                          onChange={(patch) => handleAuthorizationFieldChange(idx, patch)}
                         />
                       </div>
                       {editingFlow.web_login_credential_id && (
@@ -1396,7 +1545,7 @@ export default function Flows() {
                     </details>
                     )}
 
-                    {step.endpoint_id && (
+                    {(step.endpoint_id || step.url_template) && (
                     <details style={{ marginTop: 18, marginBottom: 14 }}>
                       <summary className="field-label"><ChevronIcon className="chevron" />Headers</summary>
                       <div style={{ marginTop: 8 }}>
@@ -1446,7 +1595,7 @@ export default function Flows() {
                       </>
                     )}
 
-                    {step.endpoint_id && (
+                    {(step.endpoint_id || step.url_template) && (
                     <>
                     <span className="field-label" style={{ marginTop: 18 }}>Assertions (Auto fill)</span>
                     <div style={{ marginBottom: 16 }}>

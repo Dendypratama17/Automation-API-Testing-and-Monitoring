@@ -150,7 +150,7 @@ function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, runInfo
         </div>
         <div className="hint" style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12.5, marginTop: 10 }}>
           <span className="mono">Flow ID: {selectedRow.flow_run_id}</span>
-          <span className="mono">Endpoint: {selectedRow.request_method} {resourcePath(selectedRow.request_url)}</span>
+          <span className="mono">Endpoint: {selectedRow.request_method} {selectedRow.request_url}</span>
           <span>Env: {selectedRow.environment_name}</span>
           <span>Status: {selectedRow.response_status_code ?? '-'}</span>
           <span>Duration: {selectedRow.response_time_ms}ms</span>
@@ -300,8 +300,8 @@ export default function Dashboard() {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   // Remembers whichever environment was last picked (across reloads and
-  // navigating away/back) instead of always resetting to "Stag".
-  const [envFilter, setEnvFilter] = useState(() => localStorage.getItem('dashboard_env_filter') || 'Stag');
+  // navigating away/back) instead of always resetting to "STG".
+  const [envFilter, setEnvFilter] = useState(() => localStorage.getItem('dashboard_env_filter') || 'STG');
   useEffect(() => {
     localStorage.setItem('dashboard_env_filter', envFilter);
   }, [envFilter]);

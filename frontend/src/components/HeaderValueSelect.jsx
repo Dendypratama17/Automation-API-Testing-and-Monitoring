@@ -3,24 +3,25 @@ import { createPortal } from 'react-dom';
 import { ChevronIcon, CheckIcon } from './icons.jsx';
 
 /**
- * Styled stand-in for a header value <select> once Config > Default Headers
- * has 2+ options for that key (see KeyValueEditor) — a plain <select> can
- * only ever show one line of plain text per <option>, which is unreadable
- * once a value has a Name/Env label AND a long raw string (e.g. an X-Token
- * hash) to show at the same time. Same portal-based approach as
- * CredentialSelect/OptionsMenu, for the same overflow-clipping reason.
+ * A header value field that's always a real, freely-editable text input —
+ * typing a brand-new value (an account that isn't saved as a Default Header
+ * yet, a one-off token) always works. When Config > Default Headers has
+ * known values for this key, a chevron button additionally opens a
+ * portal-based dropdown of them (same approach as AuthorizationField/
+ * OptionsMenu, for the same overflow-clipping reason) — picking one just
+ * fills the input, which stays editable afterward.
  */
-export default function HeaderValueSelect({ options, value, onChange }) {
+export default function HeaderValueSelect({ options, value, onChange, placeholder }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
-  const triggerRef = useRef(null);
+  const wrapRef = useRef(null);
   const listRef = useRef(null);
 
   useEffect(() => {
     if (!open) return;
     const handleClickOutside = (e) => {
       if (
-        triggerRef.current && !triggerRef.current.contains(e.target)
+        wrapRef.current && !wrapRef.current.contains(e.target)
         && listRef.current && !listRef.current.contains(e.target)
       ) setOpen(false);
     };
@@ -35,38 +36,33 @@ export default function HeaderValueSelect({ options, value, onChange }) {
     };
   }, [open]);
 
-  const toggleOpen = () => {
-    setOpen((o) => {
-      const next = !o;
-      if (next && triggerRef.current) {
-        const rect = triggerRef.current.getBoundingClientRect();
-        // The trigger itself stays only as wide as its column in the
-        // key/value grid, but the opened panel widens past that — a
-        // name + env + raw-value badge needs real room to breathe (the
-        // same room Authorization's picker gets, since that one isn't
-        // squeezed into a grid column) or the badge ends up jammed right
-        // up against the name with no gap. Clamped so it still fits on
-        // screen instead of running off the right edge.
-        const width = Math.max(rect.width, 460);
-        const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 12));
-        setPos({ top: rect.bottom + 4, left, width });
-      }
-      return next;
-    });
+  const openList = () => {
+    if (!wrapRef.current) return;
+    const rect = wrapRef.current.getBoundingClientRect();
+    // The input itself stays only as wide as its column in the key/value
+    // grid, but the opened suggestion panel widens past that — a name + env
+    // + raw-value badge needs real room to breathe, or the badge ends up
+    // jammed right up against the name with no gap. Clamped so it still
+    // fits on screen instead of running off the right edge.
+    const width = Math.max(rect.width, 460);
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 12));
+    setPos({ top: rect.bottom + 4, left, width });
+    setOpen(true);
   };
 
-  const selected = options.find((o) => o.value === value) || { value, label: null, environment_name: null };
   const pick = (opt) => { onChange(opt.value); setOpen(false); };
 
-  // Same single-line "name (env)" + pill layout as CredentialSelect — an
-  // unlabeled option (no Name/Env set in Config > Default Headers) has
-  // nothing to put in that first slot, so it just falls back to the raw
-  // value alone, same as before this got a Name/Env option.
+  // Same single-line "name (env)" + pill layout as AuthorizationField's
+  // credential list, but the name (short, identifying) and the value (can
+  // be a long hash) can't share that layout's flex rules — those give the
+  // pill first claim on space and let the name get squeezed to a sliver.
+  // Here the name keeps its full width instead, and the value pill absorbs
+  // the truncation.
   const renderOptionContent = (opt) => (
     opt.label ? (
       <>
-        <span className="cred-select-item-label">{opt.label}{opt.environment_name ? ` (${opt.environment_name})` : ''}</span>
-        <span className="badge neutral mono truncate" title={opt.value}>{opt.value || '(empty)'}</span>
+        <span className="header-value-item-name">{opt.label}{opt.environment_name ? ` (${opt.environment_name})` : ''}</span>
+        <span className="badge neutral mono header-value-item-value" title={opt.value}>{opt.value || '(empty)'}</span>
       </>
     ) : (
       <span className="header-value-option-plain">{opt.value || '(empty)'}</span>
@@ -74,11 +70,23 @@ export default function HeaderValueSelect({ options, value, onChange }) {
   );
 
   return (
-    <div ref={triggerRef} style={{ position: 'relative', width: '100%', minWidth: 0 }}>
-      <button type="button" className="cred-select-trigger" onClick={toggleOpen}>
-        <span className="cred-select-trigger-label">{renderOptionContent(selected)}</span>
-        <ChevronIcon style={{ transform: 'rotate(90deg)', flexShrink: 0, color: 'var(--text-dim)' }} />
-      </button>
+    <div ref={wrapRef} className="cred-select-combo" style={{ position: 'relative', width: '100%', minWidth: 0 }}>
+      <input
+        className="cred-select-combo-input"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {options.length > 0 && (
+        <button
+          type="button"
+          className="cred-select-combo-toggle"
+          onClick={() => (open ? setOpen(false) : openList())}
+          title="Pick a known value"
+        >
+          <ChevronIcon style={{ transform: 'rotate(90deg)' }} />
+        </button>
+      )}
       {open && pos && createPortal(
         <div
           ref={listRef}

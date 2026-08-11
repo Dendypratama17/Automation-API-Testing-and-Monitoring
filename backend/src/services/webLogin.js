@@ -10,6 +10,17 @@ const puppeteer = require('puppeteer');
 const TOKEN_COOKIE_NAME = 'oauth/token';
 const NAV_TIMEOUT_MS = 30000;
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Only a timeout/network hiccup is worth retrying — those are the ones that
+// plausibly succeed a second time. Wrong credentials or a changed page
+// layout will fail exactly the same way every time, so retrying those just
+// burns 2 more of these ~30s attempts for nothing while the run sits there
+// looking stuck.
+function isRetryableLoginError(err) {
+  return /timeout|net::ERR_/i.test(err.message);
+}
+
 function findButtonByText(page, text) {
   return page.evaluate((label) => {
     const btn = Array.from(document.querySelectorAll('button'))
@@ -77,16 +88,38 @@ async function fetchWebLoginToken(cred) {
 const tokenCache = new Map(); // credential id -> { token, expiresAt }
 const REFRESH_MARGIN_MS = 2 * 60 * 1000;
 
+// A single login attempt against the real site occasionally hits a plain
+// timeout or network hiccup that a second try clears up on its own — one
+// retry (not several) is enough to smooth that over without turning an
+// already-broken login into a multi-minute wait before the run can even
+// start on its actual steps.
+const MAX_LOGIN_ATTEMPTS = 2;
+const RETRY_DELAY_MS = 2000;
+
 async function getWebLoginToken(cred) {
   const cached = tokenCache.get(cred.id);
   if (cached && cached.expiresAt - Date.now() > REFRESH_MARGIN_MS) {
     return cached.token;
   }
 
-  const { token, expires } = await fetchWebLoginToken(cred);
-  const expiresAt = expires ? Date.parse(expires) : NaN;
-  tokenCache.set(cred.id, { token, expiresAt: Number.isNaN(expiresAt) ? Date.now() + 10 * 60 * 1000 : expiresAt });
-  return token;
+  let lastErr;
+  for (let attempt = 1; attempt <= MAX_LOGIN_ATTEMPTS; attempt++) {
+    try {
+      const { token, expires } = await fetchWebLoginToken(cred);
+      const expiresAt = expires ? Date.parse(expires) : NaN;
+      tokenCache.set(cred.id, { token, expiresAt: Number.isNaN(expiresAt) ? Date.now() + 10 * 60 * 1000 : expiresAt });
+      return token;
+    } catch (err) {
+      lastErr = err;
+      console.error(`[webLogin] Login attempt ${attempt}/${MAX_LOGIN_ATTEMPTS} for "${cred.name}" failed: ${err.message}`);
+      if (attempt < MAX_LOGIN_ATTEMPTS && isRetryableLoginError(err)) {
+        await sleep(RETRY_DELAY_MS);
+        continue;
+      }
+      break;
+    }
+  }
+  throw lastErr;
 }
 
 // Lets a manual "Test Login" (always a real, uncached check) also prime the

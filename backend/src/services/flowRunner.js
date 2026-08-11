@@ -39,8 +39,17 @@ async function runFlowAndPersist(flow, steps, environment, triggeredBy, schedule
     }
   }
 
+  // One shared map of credential id -> resolved credential (with a fresh
+  // Web Login token, or a decrypted Basic password) — covers both a step's
+  // own `auth_credential_id` AND the flow-level "Refresh auth via" one, so
+  // a step that hasn't picked its own Authorization still resolves to that
+  // flow-level account instead of going out with none at all. Fetched once
+  // per unique credential per run, not once per step.
   const authCredentials = {};
-  const authIds = [...new Set(steps.filter((s) => s.auth_credential_id).map((s) => s.auth_credential_id))];
+  const authIds = [...new Set([
+    ...steps.filter((s) => s.auth_credential_id).map((s) => s.auth_credential_id),
+    ...(flow.web_login_credential_id ? [flow.web_login_credential_id] : []),
+  ])];
   if (authIds.length) {
     const credResult = await pool.query('SELECT * FROM auth_credentials WHERE id = ANY($1)', [authIds]);
     for (const row of credResult.rows) {
@@ -48,9 +57,9 @@ async function runFlowAndPersist(flow, steps, environment, triggeredBy, schedule
         // Reuses a cached token until it's close to expiring (see
         // getWebLoginToken) instead of paying for a real ~15-20s browser
         // login on every run. If the login itself fails, skip setting this
-        // credential — the step falls back to whatever Authorization it
-        // already had configured (surfacing as that step's own real HTTP
-        // error) instead of aborting every other step in the run.
+        // credential — a step referencing it falls back to whatever
+        // Authorization it already had configured (surfacing as that
+        // step's own real HTTP error) instead of aborting the whole run.
         try {
           const token = await getWebLoginToken({ ...row, password: decrypt(row.password) });
           authCredentials[row.id] = { ...row, token };
@@ -59,46 +68,6 @@ async function runFlowAndPersist(flow, steps, environment, triggeredBy, schedule
         }
       } else {
         authCredentials[row.id] = { ...row, password: decrypt(row.password) };
-      }
-    }
-  }
-
-  // Flow-level Web Login credential: refreshes the Authorization header of
-  // every step whose header is ALREADY Bearer-scheme (e.g. a stale token
-  // baked in from a curl import), with no per-step assignment needed —
-  // unlike the `auth_credential_id` mechanism above, which only touches the
-  // one step it's explicitly assigned to. Deliberately does NOT touch a step
-  // whose Authorization uses a different scheme (Basic, a custom internal
-  // format, ...) — that step may intentionally authenticate against a
-  // different service (e.g. an internal-only endpoint using service-to-
-  // service Basic auth) than the customer-facing steps this credential is
-  // meant to refresh, and blindly overwriting it caused those steps to send
-  // the wrong credential entirely (a 401, not just a stale token).
-  if (flow.web_login_credential_id) {
-    const credResult = await pool.query(
-      `SELECT * FROM auth_credentials WHERE id=$1 AND type='web_login'`,
-      [flow.web_login_credential_id]
-    );
-    const cred = credResult.rows[0];
-    if (cred) {
-      try {
-        const token = await getWebLoginToken({ ...cred, password: decrypt(cred.password) });
-        steps = steps.map((step) => {
-          if (step.skip_web_login_refresh) return step;
-          const authKey = Object.keys(step.headers || {}).find((k) => k.toLowerCase() === 'authorization');
-          if (!authKey) return step;
-          const raw = step.headers[authKey];
-          const isDisabledWrapper = raw && typeof raw === 'object' && raw.__disabled__;
-          const currentValue = isDisabledWrapper ? raw.value : raw;
-          if (typeof currentValue !== 'string' || !/^bearer\s/i.test(currentValue.trim())) return step;
-          const newValue = `Bearer ${token}`;
-          return {
-            ...step,
-            headers: { ...step.headers, [authKey]: isDisabledWrapper ? { ...raw, value: newValue } : newValue },
-          };
-        });
-      } catch (err) {
-        console.error(`[flowRunner] Flow-level Web Login credential "${cred.name}" failed: ${err.message}`);
       }
     }
   }

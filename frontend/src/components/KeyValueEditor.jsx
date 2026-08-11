@@ -30,10 +30,12 @@ export function rowsToObject(rows) {
 }
 
 export default function KeyValueEditor({ rows, onChange, keyPlaceholder = 'Key', valuePlaceholder = 'Value' }) {
-  // Any header key that has 2+ values configured under Config > Default
-  // Headers gets a dropdown of those values here instead of a free-text
-  // input — e.g. X-Platform-Name offering Web/Android/iOS. A key with only
-  // one configured value stays a plain input (nothing to pick between).
+  // Any header key that has values configured under Config > Default
+  // Headers gets those offered as a dropdown of quick picks — e.g.
+  // X-Platform-Name offering Web/Android/iOS, or X-Token offering one entry
+  // per test account. The value field itself is always a real text input
+  // (see HeaderValueSelect) — picking a suggestion just fills it in, typing
+  // a brand-new value (nothing saved for it yet) always works too.
   const [valueOptionsByKey, setValueOptionsByKey] = useState({});
   useEffect(() => {
     getDefaultHeaders().then((headers) => {
@@ -49,17 +51,7 @@ export default function KeyValueEditor({ rows, onChange, keyPlaceholder = 'Key',
     }).catch(() => {});
   }, []);
 
-  const valueOptionsFor = (key, currentValue) => {
-    const options = valueOptionsByKey[key.trim().toLowerCase()];
-    if (!options || options.length < 2) return null;
-    // Keep whatever's already stored selectable even if it's not one of the
-    // known picks (e.g. an older/custom value, or even an empty string) —
-    // filtering out a falsy-but-real current value here would leave no <option>
-    // matching the <select>'s value, so the browser silently falls back to
-    // displaying the first option instead, even though nothing was actually
-    // selected/saved.
-    return options.some((o) => o.value === currentValue) ? options : [{ value: currentValue, label: null, environment_name: null }, ...options];
-  };
+  const valueOptionsFor = (key) => valueOptionsByKey[key.trim().toLowerCase()] || [];
 
   const update = (idx, field, value) => {
     const next = [...rows];
@@ -72,7 +64,7 @@ export default function KeyValueEditor({ rows, onChange, keyPlaceholder = 'Key',
   return (
     <div className="stack" style={{ gap: 6 }}>
       {rows.map((row, idx) => {
-        const valueOptions = valueOptionsFor(row.key, row.value);
+        const valueOptions = valueOptionsFor(row.key);
         return (
           <div key={idx} className="kv-row" style={{ opacity: row.enabled === false ? 0.5 : 1 }}>
             <input
@@ -82,11 +74,12 @@ export default function KeyValueEditor({ rows, onChange, keyPlaceholder = 'Key',
               title={row.enabled === false ? 'Enable this row' : 'Disable this row'}
             />
             <input placeholder={keyPlaceholder} value={row.key} onChange={(e) => update(idx, 'key', e.target.value)} style={{ minWidth: 0 }} />
-            {valueOptions ? (
-              <HeaderValueSelect options={valueOptions} value={row.value} onChange={(v) => update(idx, 'value', v)} />
-            ) : (
-              <input placeholder={valuePlaceholder} value={row.value} onChange={(e) => update(idx, 'value', e.target.value)} style={{ minWidth: 0 }} />
-            )}
+            <HeaderValueSelect
+              options={valueOptions}
+              value={row.value}
+              onChange={(v) => update(idx, 'value', v)}
+              placeholder={valuePlaceholder}
+            />
             <button className="btn-quiet" onClick={() => removeRow(idx)}>✕</button>
           </div>
         );

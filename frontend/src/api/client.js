@@ -23,6 +23,7 @@ export const createFolder = (data) => api.post('/folders', data).then((r) => r.d
 export const updateFolder = (id, data) => api.put(`/folders/${id}`, data).then((r) => r.data);
 export const deleteFolder = (id) => api.delete(`/folders/${id}`).then((r) => r.data);
 
+export const parseCurlForStep = (curl) => api.post('/flows/parse-curl', { curl }).then((r) => r.data);
 export const getFlows = (params) => api.get('/flows', { params }).then((r) => r.data);
 export const getFlow = (id) => api.get(`/flows/${id}`).then((r) => r.data);
 export const createFlow = (data) => api.post('/flows', data).then((r) => r.data);
