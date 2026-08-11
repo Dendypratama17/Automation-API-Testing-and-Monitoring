@@ -3,6 +3,7 @@ const { executeFlow } = require('./flowExecutor');
 const { notifyFlowIfNeeded } = require('./telegramNotifier');
 const { decrypt } = require('../utils/crypto');
 const { getWebLoginToken } = require('./webLogin');
+const { clearToken } = require('./runCancellation');
 
 // File fields carry a base64 blob (see FormDataEditor) — persisting that raw
 // on every historical run would bloat the DB fast, especially for flows on a
@@ -27,7 +28,7 @@ function sanitizeBodyForStorage(body) {
  * overall result warrants it. Shared by the manual run route and the cron
  * scheduler so both go through the exact same path.
  */
-async function runFlowAndPersist(flow, steps, environment, triggeredBy, scheduleId = null, initialVariables = {}) {
+async function runFlowAndPersist(flow, steps, environment, triggeredBy, scheduleId = null, initialVariables = {}, runToken = null) {
   const previousSchemas = {};
   for (const step of steps) {
     if (step.endpoint_id) {
@@ -72,7 +73,15 @@ async function runFlowAndPersist(flow, steps, environment, triggeredBy, schedule
     }
   }
 
-  const execution = await executeFlow(flow, steps, environment, previousSchemas, authCredentials, initialVariables);
+  let execution;
+  try {
+    execution = await executeFlow(flow, steps, environment, previousSchemas, authCredentials, initialVariables, runToken);
+  } finally {
+    // Done either way — a stale token left in the set would just sit there
+    // uselessly (it can never be reused once this run's execution has
+    // ended), so it's cleared regardless of whether it was ever cancelled.
+    clearToken(runToken);
+  }
 
   // The run right before this one, for the same schedule (or the same
   // flow+environment+trigger-type when run manually) — only used to detect a

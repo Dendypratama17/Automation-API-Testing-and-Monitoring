@@ -4,6 +4,7 @@ const pool = require('../db/pool');
 const catchAsync = require('../utils/catchAsync');
 const { runFlowAndPersist } = require('../services/flowRunner');
 const { parseCurl, toPathTemplate } = require('../services/curlParser');
+const { markCancelled } = require('../services/runCancellation');
 
 async function replaceSteps(client, flowId, steps) {
   await client.query('DELETE FROM flow_steps WHERE flow_id=$1', [flowId]);
@@ -51,6 +52,16 @@ router.post('/parse-curl', catchAsync(async (req, res) => {
     body: parsed.body,
     is_multipart: parsed.isMultipart === true,
   });
+}));
+
+// Cancels an in-flight run started with this same token (see `run_token` on
+// POST /:id/run) — the run stops at the next step boundary rather than
+// mid-request, and persists as far as it got with status CANCELLED. No-op
+// (still 200) if the run already finished or the token is unrecognized,
+// since the client can't tell which case it is from here.
+router.post('/runs/:runToken/cancel', catchAsync(async (req, res) => {
+  markCancelled(req.params.runToken);
+  res.json({ ok: true });
 }));
 
 // LIST flows, optionally filtered by folder (folder_id=null for uncategorized)
@@ -213,7 +224,7 @@ router.post('/:id/duplicate', catchAsync(async (req, res) => {
 // RUN flow: execute all steps in order against an environment, chaining
 // extracted variables, and persist the result (flow_runs / flow_run_steps).
 router.post('/:id/run', catchAsync(async (req, res) => {
-  const { environment_id, confirm_prod = false, triggered_by = 'manual' } = req.body;
+  const { environment_id, confirm_prod = false, triggered_by = 'manual', run_token = null } = req.body;
 
   const flowResult = await pool.query('SELECT * FROM flows WHERE id=$1', [req.params.id]);
   const flow = flowResult.rows[0];
@@ -236,7 +247,7 @@ router.post('/:id/run', catchAsync(async (req, res) => {
     });
   }
 
-  const result = await runFlowAndPersist(flow, stepsToRun, environment, triggered_by);
+  const result = await runFlowAndPersist(flow, stepsToRun, environment, triggered_by, null, {}, run_token);
   // Don't expose `variables` (environment secrets + everything extracted) —
   // it only exists internally for chaining into the next flow in a batch run.
   res.json({ flow_run: result.flow_run, steps: result.steps });

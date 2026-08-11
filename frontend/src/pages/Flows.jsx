@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   getFolders, createFolder, updateFolder, deleteFolder,
   getFlows, getFlow, createFlow, updateFlow, deleteFlow, duplicateFlow, reorderFlows,
-  runFlow, batchRunFlows, runFlowStep, updateFlowStep, updateAllFlowSteps, getEndpoints, getEnvironments, getAuthCredentials, getDefaultHeaders,
+  runFlow, cancelFlowRun, batchRunFlows, runFlowStep, updateFlowStep, updateAllFlowSteps, getEndpoints, getEnvironments, getAuthCredentials, getDefaultHeaders,
   parseCurlForStep,
 } from '../api/client';
 import JsonBlock from '../components/JsonBlock.jsx';
@@ -349,6 +349,8 @@ export default function Flows() {
   const [runResult, setRunResult] = useState(null);
   const [running, setRunning] = useState(false);
   const [runningFlowId, setRunningFlowId] = useState(null);
+  const [runningToken, setRunningToken] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
   const [runningStepId, setRunningStepId] = useState(null);
   const [selectedFlowIds, setSelectedFlowIds] = useState(new Set());
   const [batchRunResult, setBatchRunResult] = useState(null);
@@ -819,6 +821,13 @@ export default function Flows() {
     setViewingFlow(null);
     setRunning(true);
     setRunningFlowId(flowId);
+    // Handed to the backend so a "Cancel" click has something to identify
+    // this exact run by — generated fresh per actual attempt (the prod
+    // confirmation retry below counts as a new attempt, since the first one
+    // never got past the confirmation gate to execute anything).
+    const runToken = crypto.randomUUID();
+    setRunningToken(runToken);
+    setCancelling(false);
     setRunResult(null);
     setBatchRunResult(null);
     setError('');
@@ -827,7 +836,7 @@ export default function Flows() {
     // finally must not stomp on it while the confirmed run is still in flight.
     let handedOff = false;
     try {
-      const res = await runFlow(flowId, { environment_id: selectedEnv, confirm_prod: confirmProd });
+      const res = await runFlow(flowId, { environment_id: selectedEnv, confirm_prod: confirmProd, run_token: runToken });
       setRunResult({ ...res, flow_name: flows.find((f) => f.id === flowId)?.name || 'Flow' });
     } catch (err) {
       if (err.response?.status === 412) {
@@ -843,7 +852,20 @@ export default function Flows() {
       if (!handedOff) {
         setRunning(false);
         setRunningFlowId(null);
+        setRunningToken(null);
+        setCancelling(false);
       }
+    }
+  };
+
+  const handleCancelRun = async () => {
+    if (!runningToken || cancelling) return;
+    setCancelling(true);
+    try {
+      await cancelFlowRun(runningToken);
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+      setCancelling(false);
     }
   };
 
@@ -1186,15 +1208,6 @@ export default function Flows() {
                       <span className="step-number-badge" style={{ opacity: s.enabled === false ? 0.5 : 1 }}>{idx + 1}</span>
                       <b style={{ opacity: s.enabled === false ? 0.5 : 1, textDecoration: s.enabled === false ? 'line-through' : undefined }}>{s.name}</b>
                       {Number(s.delay_ms) > 0 && <span className="hint" title="Delay before this step runs">⏱ {formatDelaySeconds(s.delay_ms)}s</span>}
-                      {s.auth_credential_id && (() => {
-                        const cred = authCredentials.find((c) => c.id === s.auth_credential_id);
-                        return (
-                          <span className="hint" title="Authorization">
-                            🔐 {cred?.name || `#${s.auth_credential_id}`}{cred?.environment_name ? ` (${cred.environment_name})` : ''}
-                          </span>
-                        );
-                      })()}
-                      {s.enabled === false && <span className="hint">Skipped</span>}
                       <button
                         className="btn-icon"
                         style={{ marginLeft: 'auto' }}
@@ -1386,15 +1399,6 @@ export default function Flows() {
                         <span style={{ fontWeight: 600, opacity: step.enabled === false ? 0.5 : 1, textDecoration: step.enabled === false ? 'line-through' : undefined }}>{step.name || 'Untitled step'}</span>
                         {step.method && <span className="hint mono">{step.method}</span>}
                         {Number(step.delayMs) > 0 && <span className="hint" title="Delay before this step runs">⏱ {formatDelaySeconds(step.delayMs)}s</span>}
-                        {step.authCredentialId && (() => {
-                          const cred = authCredentials.find((c) => String(c.id) === String(step.authCredentialId));
-                          return (
-                            <span className="hint" title="Authorization">
-                              🔐 {cred?.name || `#${step.authCredentialId}`}{cred?.environment_name ? ` (${cred.environment_name})` : ''}
-                            </span>
-                          );
-                        })()}
-                        {step.enabled === false && <span className="hint">Skipped</span>}
                         <div style={{ marginLeft: 'auto' }}>
                           <OptionsMenu
                             items={[
@@ -1640,7 +1644,18 @@ export default function Flows() {
           {running && !runResult && !batchRunResult && (
             <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span className="spinner" />
-              <span className="hint">Running flow…</span>
+              <span className="hint">{cancelling ? 'Cancelling…' : 'Running flow…'}</span>
+              {runningToken && (
+                <button
+                  className="btn-quiet"
+                  style={{ marginLeft: 'auto' }}
+                  disabled={cancelling}
+                  onClick={handleCancelRun}
+                  title="Stops the run at the next step boundary — whatever already completed is kept."
+                >
+                  Cancel
+                </button>
+              )}
             </div>
           )}
 

@@ -503,6 +503,7 @@ tbody td:last-child, thead th:last-child { padding-right: 20px; }
 .badge.error { background: var(--error-bg); color: var(--error); }
 .badge.neutral { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
 .badge.info { background: var(--accent-soft); color: #c7c5ff; }
+.badge.cancelled { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
 
 /* ---------- Folder tree ---------- */
 

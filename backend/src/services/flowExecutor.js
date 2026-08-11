@@ -1,6 +1,7 @@
 const axios = require('axios');
 const crypto = require('crypto');
 const { generateSchema, diffSchema } = require('./schemaTool');
+const { isCancelled } = require('./runCancellation');
 
 const SEVERITY = { PASS: 0, SCHEMA_DRIFT: 1, FAIL: 2, ERROR: 3 };
 
@@ -314,12 +315,19 @@ function checkAssertions(assertions, response, responseTimeMs) {
  * run together as a batch (see routes/flows.js's /batch-run). The final
  * variables object is returned so the batch runner can pass it on again.
  */
-async function executeFlow(flow, steps, environment, previousSchemas = {}, authCredentials = {}, initialVariables = {}) {
+async function executeFlow(flow, steps, environment, previousSchemas = {}, authCredentials = {}, initialVariables = {}, runToken = null) {
   const variables = { base_url: environment.base_url, ...(environment.variables || {}), ...initialVariables };
   const stepResults = [];
   let overallStatus = 'PASS';
 
   for (const step of steps) {
+    // Checked between steps (not mid-request — an in-flight HTTP call still
+    // runs to completion) so cancelling a run stops it at the next natural
+    // boundary instead of leaving it in a half-applied state.
+    if (isCancelled(runToken)) {
+      overallStatus = 'CANCELLED';
+      break;
+    }
     // Waited before this step runs at all — e.g. giving an async backend
     // process (document indexing, a webhook) time to finish before the next
     // check, without hardcoding a delay into every step's own request.

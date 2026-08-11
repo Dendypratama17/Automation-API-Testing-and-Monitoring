@@ -31,6 +31,7 @@ export const updateFlow = (id, data) => api.put(`/flows/${id}`, data).then((r) =
 export const deleteFlow = (id) => api.delete(`/flows/${id}`).then((r) => r.data);
 export const duplicateFlow = (id) => api.post(`/flows/${id}/duplicate`).then((r) => r.data);
 export const runFlow = (id, data) => api.post(`/flows/${id}/run`, data).then((r) => r.data);
+export const cancelFlowRun = (runToken) => api.post(`/flows/runs/${runToken}/cancel`).then((r) => r.data);
 export const batchRunFlows = (data) => api.post('/flows/batch-run', data).then((r) => r.data);
 export const runFlowStep = (flowId, stepId, data) => api.post(`/flows/${flowId}/steps/${stepId}/run`, data).then((r) => r.data);
 export const updateFlowStep = (flowId, stepId, data) => api.patch(`/flows/${flowId}/steps/${stepId}`, data).then((r) => r.data);
