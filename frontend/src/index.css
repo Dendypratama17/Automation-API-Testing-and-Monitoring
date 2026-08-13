@@ -548,17 +548,77 @@ tbody td:last-child, thead th:last-child { padding-right: 20px; }
 
 .subtitle { color: var(--text-muted); font-size: 13px; }
 .mono { font-family: 'SF Mono', 'Fira Code', Menlo, monospace; font-size: 12.5px; }
+
+/* Syntax-highlighted, diff-aware JSON paste box (see JsonPasteEditor.jsx) —
+   a transparent real <textarea> sits on top of a colored <pre> of the exact
+   same text; both share font/line-height/padding so the invisible real
+   caret always lines up with the visible colored character underneath it. */
+.json-paste-editor {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.json-paste-editor-highlight,
+.json-paste-editor-input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre;
+  box-sizing: border-box;
+  overflow: auto;
+}
+.json-paste-editor-highlight { pointer-events: none; color: var(--text); }
+/* var(--surface), not var(--surface-2) — the editor box itself is already
+   surface-2, so a same-color/translucent button here would have no visible
+   edge against it and just look like it's sitting "inside" the text behind
+   it instead of a clearly separate control floating on top. */
+.json-paste-editor-toolbar {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+}
+.json-paste-editor-toolbar button.btn-icon {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+.json-paste-editor-toolbar button.btn-icon:hover { background: var(--surface-2); }
+.json-paste-editor-input {
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  border: none;
+  outline: none;
+  resize: none;
+}
+/* width: fit-content (floored by min-width: 100%) so a highlighted line's
+   background spans its full text — including the part only reachable by
+   scrolling right — instead of stopping at the box's visible width and
+   leaving the rest of a long line unhighlighted. */
+.json-paste-editor-line { display: block; width: fit-content; min-width: 100%; white-space: pre; min-height: 1.6em; }
+.json-paste-editor.is-locked { background: var(--surface); opacity: 0.85; }
+.json-paste-editor.is-locked .json-paste-editor-input { cursor: default; }
 .truncate { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .json-block-copy {
   position: absolute;
   top: 6px;
   right: 6px;
   z-index: 1;
-  background: var(--surface-2);
-  border-color: var(--border);
   opacity: 0.7;
 }
 .json-block-copy:hover { opacity: 1; }
+.json-block-copy button.btn-icon {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
 .json-block {
   white-space: pre-wrap;
   background: #0a0c11;

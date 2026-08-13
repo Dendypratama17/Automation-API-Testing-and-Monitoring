@@ -363,7 +363,7 @@ export default function Dashboard() {
     getEndpointDetail(selectedRow.endpoint_id).then((data) => { if (!cancelled) setDetail(data); }).catch(() => { if (!cancelled) setDetail(null); });
     getEndpointTrend(selectedRow.endpoint_id, { days: 7 }).then((data) => {
       if (!cancelled) setTrend(data.map((d) => ({ time: new Date(d.created_at).toLocaleString(), ms: d.response_time_ms })));
-    });
+    }).catch(() => { if (!cancelled) setTrend([]); });
     return () => { cancelled = true; };
   }, [selectedRow]);
 

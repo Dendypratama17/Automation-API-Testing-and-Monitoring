@@ -5,13 +5,14 @@ const catchAsync = require('../utils/catchAsync');
 const { runFlowAndPersist } = require('../services/flowRunner');
 const { parseCurl, toPathTemplate } = require('../services/curlParser');
 const { markCancelled } = require('../services/runCancellation');
+const { initProgress, clearProgress, getProgress } = require('../services/runProgress');
 
 async function replaceSteps(client, flowId, steps) {
   await client.query('DELETE FROM flow_steps WHERE flow_id=$1', [flowId]);
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
     await client.query(
-      `INSERT INTO flow_steps (flow_id, endpoint_id, auth_credential_id, step_order, name, method, url_template, headers, body_template, body_type, extract, assertions, enabled, delay_ms, skip_web_login_refresh)
+      `INSERT INTO flow_steps (flow_id, endpoint_id, auth_credential_id, step_order, name, method, url_template, headers, body_template, body_type, extract, assertions, enabled, delay_ms, parallel_with_previous)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11::jsonb,$12::jsonb,$13,$14,$15)`,
       [
         flowId, s.endpoint_id || null, s.auth_credential_id || null, i, s.name, s.method, s.url_template,
@@ -22,7 +23,7 @@ async function replaceSteps(client, flowId, steps) {
         JSON.stringify(s.assertions || []),
         s.enabled !== false,
         Number(s.delay_ms) || 0,
-        s.skip_web_login_refresh === true,
+        i > 0 && s.parallel_with_previous === true,
       ]
     );
   }
@@ -62,6 +63,17 @@ router.post('/parse-curl', catchAsync(async (req, res) => {
 router.post('/runs/:runToken/cancel', catchAsync(async (req, res) => {
   markCancelled(req.params.runToken);
   res.json({ ok: true });
+}));
+
+// Steps completed so far for a run (or Batch Run) still in flight — polled
+// by the frontend while `running` is true so results appear as each step
+// lands instead of only once the whole thing finishes. `segments` is one
+// entry per flow run under this token — always exactly one for a plain
+// manual run, one per flow (in start order) for a Batch Run. Empty array
+// once the run ends (or for an unrecognized token), same "can't tell which
+// case" shrug as cancel above.
+router.get('/runs/:runToken/progress', catchAsync(async (req, res) => {
+  res.json({ segments: getProgress(req.params.runToken) });
 }));
 
 // LIST flows, optionally filtered by folder (folder_id=null for uncategorized)
@@ -129,14 +141,14 @@ router.get('/:id', catchAsync(async (req, res) => {
 
 // CREATE flow + steps
 router.post('/', catchAsync(async (req, res) => {
-  const { name, description, folder_id = null, stop_on_failure = true, web_login_credential_id = null, steps = [] } = req.body;
+  const { name, description, folder_id = null, stop_on_failure = true, steps = [] } = req.body;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const flowResult = await client.query(
-      `INSERT INTO flows (name, description, folder_id, stop_on_failure, web_login_credential_id) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [name, description || null, folder_id, stop_on_failure, web_login_credential_id]
+      `INSERT INTO flows (name, description, folder_id, stop_on_failure) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [name, description || null, folder_id, stop_on_failure]
     );
     const flow = flowResult.rows[0];
     await replaceSteps(client, flow.id, steps);
@@ -154,14 +166,14 @@ router.post('/', catchAsync(async (req, res) => {
 
 // UPDATE flow (name/description/folder/settings) and replace its steps wholesale
 router.put('/:id', catchAsync(async (req, res) => {
-  const { name, description, folder_id = null, stop_on_failure = true, web_login_credential_id = null, steps = [] } = req.body;
+  const { name, description, folder_id = null, stop_on_failure = true, steps = [] } = req.body;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const flowResult = await client.query(
-      `UPDATE flows SET name=$1, description=$2, folder_id=$3, stop_on_failure=$4, web_login_credential_id=$5, updated_at=NOW() WHERE id=$6 RETURNING *`,
-      [name, description || null, folder_id, stop_on_failure, web_login_credential_id, req.params.id]
+      `UPDATE flows SET name=$1, description=$2, folder_id=$3, stop_on_failure=$4, updated_at=NOW() WHERE id=$5 RETURNING *`,
+      [name, description || null, folder_id, stop_on_failure, req.params.id]
     );
     const flow = flowResult.rows[0];
     if (!flow) {
@@ -204,8 +216,8 @@ router.post('/:id/duplicate', catchAsync(async (req, res) => {
     const stepsResult = await client.query('SELECT * FROM flow_steps WHERE flow_id=$1 ORDER BY step_order', [original.id]);
 
     const newFlowResult = await client.query(
-      `INSERT INTO flows (name, description, folder_id, stop_on_failure, web_login_credential_id) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [`${original.name} (Copy)`, original.description, original.folder_id, original.stop_on_failure, original.web_login_credential_id]
+      `INSERT INTO flows (name, description, folder_id, stop_on_failure) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [`${original.name} (Copy)`, original.description, original.folder_id, original.stop_on_failure]
     );
     const newFlow = newFlowResult.rows[0];
     await replaceSteps(client, newFlow.id, stepsResult.rows);
@@ -247,7 +259,13 @@ router.post('/:id/run', catchAsync(async (req, res) => {
     });
   }
 
-  const result = await runFlowAndPersist(flow, stepsToRun, environment, triggered_by, null, {}, run_token);
+  initProgress(run_token);
+  let result;
+  try {
+    result = await runFlowAndPersist(flow, stepsToRun, environment, triggered_by, null, {}, run_token);
+  } finally {
+    clearProgress(run_token);
+  }
   // Don't expose `variables` (environment secrets + everything extracted) —
   // it only exists internally for chaining into the next flow in a batch run.
   res.json({ flow_run: result.flow_run, steps: result.steps });
@@ -324,7 +342,7 @@ router.patch('/:id/steps', catchAsync(async (req, res) => {
 // each flow's extracted variables into the next — e.g. run a "Login" flow
 // first, then a "Get Profile" flow that reuses the token it extracted.
 router.post('/batch-run', catchAsync(async (req, res) => {
-  const { flow_ids, environment_id, confirm_prod = false, triggered_by = 'manual' } = req.body;
+  const { flow_ids, environment_id, confirm_prod = false, triggered_by = 'manual', run_token = null } = req.body;
   if (!Array.isArray(flow_ids) || flow_ids.length === 0) {
     return res.status(400).json({ error: 'flow_ids must be a non-empty array' });
   }
@@ -340,26 +358,36 @@ router.post('/batch-run', catchAsync(async (req, res) => {
     });
   }
 
+  // One shared progress token for the whole batch — each flow below gets its
+  // own segment (see runProgress.js) under this same token, polled via
+  // GET /runs/:runToken/progress same as a single run. Each flow's own
+  // runToken (cancellation) is deliberately left null — a Batch Run isn't
+  // individually cancellable per-flow today, unchanged from before this.
+  initProgress(run_token);
   const results = [];
   let carryVariables = {};
-  for (const flowId of flow_ids) {
-    const flowResult = await pool.query('SELECT * FROM flows WHERE id=$1', [flowId]);
-    const flow = flowResult.rows[0];
-    if (!flow) {
-      results.push({ flow_id: flowId, error: 'Flow not found' });
-      continue;
-    }
+  try {
+    for (const flowId of flow_ids) {
+      const flowResult = await pool.query('SELECT * FROM flows WHERE id=$1', [flowId]);
+      const flow = flowResult.rows[0];
+      if (!flow) {
+        results.push({ flow_id: flowId, error: 'Flow not found' });
+        continue;
+      }
 
-    const stepsResult = await pool.query('SELECT * FROM flow_steps WHERE flow_id=$1 ORDER BY step_order', [flow.id]);
-    const stepsToRun = stepsResult.rows.filter((s) => s.enabled !== false);
-    if (stepsToRun.length === 0) {
-      results.push({ flow_id: flow.id, flow_name: flow.name, error: 'Flow has no enabled steps' });
-      continue;
-    }
+      const stepsResult = await pool.query('SELECT * FROM flow_steps WHERE flow_id=$1 ORDER BY step_order', [flow.id]);
+      const stepsToRun = stepsResult.rows.filter((s) => s.enabled !== false);
+      if (stepsToRun.length === 0) {
+        results.push({ flow_id: flow.id, flow_name: flow.name, error: 'Flow has no enabled steps' });
+        continue;
+      }
 
-    const result = await runFlowAndPersist(flow, stepsToRun, environment, triggered_by, null, carryVariables);
-    carryVariables = result.variables; // hand off to the next flow in the batch
-    results.push({ flow_id: flow.id, flow_name: flow.name, flow_run: result.flow_run, steps: result.steps });
+      const result = await runFlowAndPersist(flow, stepsToRun, environment, triggered_by, null, carryVariables, null, run_token);
+      carryVariables = result.variables; // hand off to the next flow in the batch
+      results.push({ flow_id: flow.id, flow_name: flow.name, flow_run: result.flow_run, steps: result.steps });
+    }
+  } finally {
+    clearProgress(run_token);
   }
 
   res.json({ results });

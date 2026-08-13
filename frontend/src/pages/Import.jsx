@@ -28,8 +28,13 @@ export default function Import() {
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [collectionError, setCollectionError] = useState('');
 
+  const [envFileLoading, setEnvFileLoading] = useState(false);
+  const [envFileError, setEnvFileError] = useState('');
+
   const [dotenvText, setDotenvText] = useState('');
   const [dotenvName, setDotenvName] = useState('');
+  const [dotenvLoading, setDotenvLoading] = useState(false);
+  const [dotenvError, setDotenvError] = useState('');
 
   useEffect(() => {
     getFolders('endpoint').then(setFolders);
@@ -101,16 +106,33 @@ export default function Import() {
   const handlePostmanEnvFile = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const json = JSON.parse(await file.text());
-    await importPostmanEnv(json);
-    showToast('Environment imported successfully.');
+    setEnvFileLoading(true);
+    setEnvFileError('');
+    try {
+      const json = JSON.parse(await file.text());
+      await importPostmanEnv(json);
+      showToast('Environment imported successfully.');
+    } catch (err) {
+      setEnvFileError(err.message.includes('JSON') ? 'File is not valid JSON' : (err.response?.data?.error || err.message));
+    } finally {
+      setEnvFileLoading(false);
+      e.target.value = '';
+    }
   };
 
   const handleDotenvImport = async () => {
-    await importDotenv({ name: dotenvName, content: dotenvText });
-    setDotenvText('');
-    setDotenvName('');
-    showToast('Environment imported successfully.');
+    setDotenvLoading(true);
+    setDotenvError('');
+    try {
+      await importDotenv({ name: dotenvName, content: dotenvText });
+      setDotenvText('');
+      setDotenvName('');
+      showToast('Environment imported successfully.');
+    } catch (err) {
+      setDotenvError(err.response?.data?.error || err.message);
+    } finally {
+      setDotenvLoading(false);
+    }
   };
 
   return (
@@ -187,7 +209,13 @@ export default function Import() {
         <h4>Import Environment</h4>
         <span className="field-label">From Postman Environment (.json)</span>
         <div style={{ marginBottom: 16 }}>
-          <FilePicker accept=".json" onFileSelect={handlePostmanEnvFile} label="Choose Environment File" />
+          <FilePicker
+            accept=".json"
+            onFileSelect={handlePostmanEnvFile}
+            label={envFileLoading ? 'Processing...' : 'Choose Environment File'}
+            disabled={envFileLoading}
+          />
+          {envFileError && <p className="error-text">{envFileError}</p>}
         </div>
 
         <span className="field-label">From .env file</span>
@@ -206,8 +234,11 @@ export default function Import() {
           style={{ width: '100%' }}
         />
         <div className="toolbar" style={{ marginTop: 10 }}>
-          <button className="btn-primary" onClick={handleDotenvImport} disabled={!dotenvName || !dotenvText}>Import</button>
+          <button className="btn-primary" onClick={handleDotenvImport} disabled={dotenvLoading || !dotenvName || !dotenvText}>
+            {dotenvLoading ? 'Processing...' : 'Import'}
+          </button>
         </div>
+        {dotenvError && <p className="error-text">{dotenvError}</p>}
       </div>
 
       {showFolderManager && (

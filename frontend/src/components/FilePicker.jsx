@@ -6,7 +6,7 @@ import React, { useEffect, useRef, useState } from 'react';
  * one button with a small dropdown offering "Upload from computer..." plus
  * each saved file — one control instead of two side-by-side ones.
  */
-export default function FilePicker({ accept, onFileSelect, label = 'Choose File', fileName: initialFileName, libraryOptions, onLibrarySelect, hideFileName = false, onUseUrl }) {
+export default function FilePicker({ accept, onFileSelect, label = 'Choose File', fileName: initialFileName, libraryOptions, onLibrarySelect, hideFileName = false, onUseUrl, disabled = false }) {
   const inputRef = useRef(null);
   const menuRef = useRef(null);
   // Seeded from `initialFileName` so a previously-saved file (e.g. reopening
@@ -45,7 +45,7 @@ export default function FilePicker({ accept, onFileSelect, label = 'Choose File'
   if (!hasMenu) {
     return (
       <div className="file-picker">
-        <button type="button" onClick={() => inputRef.current?.click()}>{label}</button>
+        <button type="button" onClick={() => inputRef.current?.click()} disabled={disabled}>{label}</button>
         {!hideFileName && <span className={fileName ? 'mono' : 'hint'}>{fileName || 'No file chosen'}</span>}
         {hiddenInput}
       </div>
@@ -54,7 +54,7 @@ export default function FilePicker({ accept, onFileSelect, label = 'Choose File'
 
   return (
     <div ref={menuRef} className="file-picker-menu" style={{ position: 'relative' }}>
-      <button type="button" onClick={() => setMenuOpen((o) => !o)} className="mono">
+      <button type="button" onClick={() => setMenuOpen((o) => !o)} className="mono" disabled={disabled}>
         {fileName || label}
       </button>
       {hiddenInput}

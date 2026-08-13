@@ -18,6 +18,13 @@ export const reorderEndpoints = (ids) => api.put('/endpoints/reorder', { ids }).
 export const importFromCurl = (data) => api.post('/endpoints/from-curl', data).then((r) => r.data);
 export const importPostmanCollection = (data) => api.post('/endpoints/import/postman-collection', data).then((r) => r.data);
 
+export const computeJsonDiff = (data) => api.post('/json-diff/compute', data).then((r) => r.data);
+export const saveJsonDiff = (data) => api.post('/json-diff/save', data).then((r) => r.data);
+export const getSavedJsonDiffs = () => api.get('/json-diff').then((r) => r.data);
+export const getSavedJsonDiff = (id) => api.get(`/json-diff/${id}`).then((r) => r.data);
+export const deleteSavedJsonDiff = (id) => api.delete(`/json-diff/${id}`).then((r) => r.data);
+export const renameSavedJsonDiff = (id, name) => api.put(`/json-diff/${id}/rename`, { name }).then((r) => r.data);
+
 export const getFolders = (kind) => api.get('/folders', { params: { kind } }).then((r) => r.data);
 export const createFolder = (data) => api.post('/folders', data).then((r) => r.data);
 export const updateFolder = (id, data) => api.put(`/folders/${id}`, data).then((r) => r.data);
@@ -32,6 +39,7 @@ export const deleteFlow = (id) => api.delete(`/flows/${id}`).then((r) => r.data)
 export const duplicateFlow = (id) => api.post(`/flows/${id}/duplicate`).then((r) => r.data);
 export const runFlow = (id, data) => api.post(`/flows/${id}/run`, data).then((r) => r.data);
 export const cancelFlowRun = (runToken) => api.post(`/flows/runs/${runToken}/cancel`).then((r) => r.data);
+export const getRunProgress = (runToken) => api.get(`/flows/runs/${runToken}/progress`).then((r) => r.data);
 export const batchRunFlows = (data) => api.post('/flows/batch-run', data).then((r) => r.data);
 export const runFlowStep = (flowId, stepId, data) => api.post(`/flows/${flowId}/steps/${stepId}/run`, data).then((r) => r.data);
 export const updateFlowStep = (flowId, stepId, data) => api.patch(`/flows/${flowId}/steps/${stepId}`, data).then((r) => r.data);

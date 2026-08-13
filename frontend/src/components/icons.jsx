@@ -127,6 +127,27 @@ export function DownloadIcon(props) {
   );
 }
 
+export function JsonDiffIcon(props) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="3" y="4" width="8" height="16" rx="1.5" /><rect x="13" y="4" width="8" height="16" rx="1.5" />
+      <path d="M9.5 12h5" /><path d="M12.5 9.5l2.5 2.5-2.5 2.5" />
+    </svg>
+  );
+}
+
+export function WandIcon(props) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="m15 4 1.5 1.5" />
+      <path d="M3 21 16.5 7.5" />
+      <path d="m18 3 .7 1.8L20.5 5.5l-1.8.7L18 8l-.7-1.8L15.5 5.5l1.8-.7Z" />
+      <path d="m8 3 .5 1.3L9.8 4.8l-1.3.5L8 6.5l-.5-1.2L6.2 4.8l1.3-.5Z" />
+      <path d="m19 13 .5 1.3 1.3.5-1.3.5-.5 1.2-.5-1.2-1.3-.5 1.3-.5Z" />
+    </svg>
+  );
+}
+
 export function GripIcon(props) {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" {...props}>

@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import {
-  getSchedules, createSchedule, getScheduleRuns, getEnvironments, getFlows, getFlowRun,
+  getSchedules, createSchedule, updateSchedule, deleteSchedule, deleteScheduleForever, getScheduleHistory,
+  getScheduleRuns, getEnvironments, getFlows, getFlowRun,
 } from '../api/client';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
 import JsonBlock from '../components/JsonBlock.jsx';
+import OptionsMenu from '../components/OptionsMenu.jsx';
 import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
-import { DownloadIcon, ChevronIcon } from '../components/icons.jsx';
+import { DownloadIcon, ChevronIcon, EditIcon, StopIcon, TrashIcon } from '../components/icons.jsx';
 import { exportRunResultToPdf } from '../utils/exportRunResultPdf.js';
 import { exportScheduleSummaryToPdf } from '../utils/exportScheduleSummaryPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
@@ -90,6 +92,12 @@ export default function Schedules() {
   const [flows, setFlows] = useState([]);
   const [form, setForm] = useState({ name: '', cron_expression: '', flow_id: '', environment_id: '', duration_minutes: '' });
   const [formErrors, setFormErrors] = useState({});
+  // Set while editing an existing schedule (Edit action in the row's Options
+  // menu) — the same Create form doubles as the edit form, submitting to
+  // PUT /:id instead of POST / when this is set. duration_minutes/auto_stop_at
+  // aren't part of this — the backend's UPDATE route only covers
+  // name/cron/flow/environment/is_active, so editing never touches it.
+  const [editingScheduleId, setEditingScheduleId] = useState(null);
   const [viewingSchedule, setViewingSchedule] = useState(null); // { schedule, runs }
   // Which run (in viewingSchedule.runs) is expanded, its fetched step detail,
   // and which of those steps is currently shown — same drill-down pattern as
@@ -196,6 +204,12 @@ export default function Schedules() {
     }
   };
 
+  const resetForm = () => {
+    setForm({ name: '', cron_expression: '', flow_id: '', environment_id: '', duration_minutes: '' });
+    setEditingScheduleId(null);
+    setFormErrors({});
+  };
+
   const handleCreate = async () => {
     const errors = {};
     if (!form.name.trim()) errors.name = true;
@@ -212,14 +226,65 @@ export default function Schedules() {
       );
       if (!ok) return;
     }
-    await createSchedule({
-      ...form,
-      flow_id: Number(form.flow_id),
-      environment_id: Number(form.environment_id),
-      duration_minutes: form.duration_minutes ? Number(form.duration_minutes) : null,
+
+    if (editingScheduleId) {
+      const existing = schedules.find((s) => s.id === editingScheduleId);
+      await updateSchedule(editingScheduleId, {
+        name: form.name,
+        cron_expression: form.cron_expression,
+        flow_id: Number(form.flow_id),
+        environment_id: Number(form.environment_id),
+        is_active: existing ? existing.is_active : true,
+      });
+      showToast(`Schedule "${form.name}" updated successfully.`);
+    } else {
+      await createSchedule({
+        ...form,
+        flow_id: Number(form.flow_id),
+        environment_id: Number(form.environment_id),
+        duration_minutes: form.duration_minutes ? Number(form.duration_minutes) : null,
+      });
+      showToast(`Schedule "${form.name}" created successfully.`);
+    }
+    resetForm();
+    load();
+  };
+
+  const handleEditSchedule = (s) => {
+    setEditingScheduleId(s.id);
+    setForm({
+      name: s.name,
+      cron_expression: s.cron_expression,
+      flow_id: String(s.flow_id),
+      environment_id: String(s.environment_id),
+      duration_minutes: '',
     });
-    showToast(`Schedule "${form.name}" created successfully.`);
-    setForm({ name: '', cron_expression: '', flow_id: '', environment_id: '', duration_minutes: '' });
+    setFormErrors({});
+  };
+
+  // Soft-stop — unregisters the cron job but keeps the row/history visible
+  // (see routes/schedules.js DELETE /:id). Reversible in spirit: re-creating
+  // an identical schedule resumes the same cron, this just retires this row.
+  const handleStopSchedule = async (s) => {
+    if (!(await confirm(`Stop "${s.name}"? It will no longer run automatically — its run history stays visible.`))) return;
+    await deleteSchedule(s.id);
+    showToast(`Schedule "${s.name}" stopped.`);
+    load();
+  };
+
+  // Hard-delete — only allowed once already stopped (backend enforces this
+  // too). Shows the run tally in the confirm so it's clear what's about to
+  // disappear from the schedule list (the underlying flow_runs stay in the
+  // Dashboard either way — schedule_id isn't a foreign key).
+  const handleDeleteForever = async (s) => {
+    const history = await getScheduleHistory(s.id).catch(() => null);
+    const tally = history
+      ? ` It ran ${history.total_runs} time${history.total_runs === 1 ? '' : 's'} (${history.pass_count} pass, ${history.fail_count} fail, ${history.error_count} error).`
+      : '';
+    if (!(await confirm(`Permanently delete "${s.name}"?${tally} This removes it from the Schedules list — its past runs stay in the Dashboard.`))) return;
+    await deleteScheduleForever(s.id);
+    showToast(`Schedule "${s.name}" deleted.`);
+    if (viewingSchedule?.schedule.id === s.id) setViewingSchedule(null);
     load();
   };
 
@@ -239,7 +304,7 @@ export default function Schedules() {
       </div>
 
       <div className="card">
-        <h4>Create New Schedule</h4>
+        <h4>{editingScheduleId ? 'Edit Schedule' : 'Create New Schedule'}</h4>
         <div className="toolbar" style={{ flexWrap: 'nowrap' }}>
           <input
             placeholder="Schedule name"
@@ -255,15 +320,17 @@ export default function Schedules() {
             <option value="">Select Schedule</option>
             {CRON_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
           </select>
-          <select
-            value={form.duration_minutes}
-            onChange={(e) => setForm({ ...form, duration_minutes: e.target.value })}
-            title="How long this schedule keeps running before it auto-stops itself — separate from how often it runs."
-            style={{ flexShrink: 0 }}
-          >
-            <option value="">Run forever</option>
-            {DURATION_PRESETS.map((p) => <option key={p.value} value={p.value}>Run for {p.label}</option>)}
-          </select>
+          {!editingScheduleId && (
+            <select
+              value={form.duration_minutes}
+              onChange={(e) => setForm({ ...form, duration_minutes: e.target.value })}
+              title="How long this schedule keeps running before it auto-stops itself — separate from how often it runs."
+              style={{ flexShrink: 0 }}
+            >
+              <option value="">Run forever</option>
+              {DURATION_PRESETS.map((p) => <option key={p.value} value={p.value}>Run for {p.label}</option>)}
+            </select>
+          )}
           <select
             value={form.flow_id}
             onChange={(e) => { setForm({ ...form, flow_id: e.target.value }); setFormErrors({ ...formErrors, flow: false }); }}
@@ -282,7 +349,12 @@ export default function Schedules() {
               <option key={env.id} value={env.id}>{env.name}{env.is_protected ? ' (protected)' : ''}</option>
             ))}
           </select>
-          <button className="btn-primary" onClick={handleCreate} style={{ flexShrink: 0 }}>Create</button>
+          <button className="btn-primary" onClick={handleCreate} style={{ flexShrink: 0 }}>
+            {editingScheduleId ? 'Save' : 'Create'}
+          </button>
+          {editingScheduleId && (
+            <button className="btn-quiet" onClick={resetForm} style={{ flexShrink: 0 }}>Cancel</button>
+          )}
         </div>
       </div>
 
@@ -298,6 +370,7 @@ export default function Schedules() {
               <th style={{ width: '16%' }}>Last Run</th>
               <th style={{ width: '12%' }}>Runs</th>
               <th style={{ width: '9%' }}>Status</th>
+              <th style={{ width: 48 }}></th>
             </tr>
           </thead>
           <tbody>
@@ -334,9 +407,18 @@ export default function Schedules() {
                 <td>
                   <span className={`badge ${s.deleted_at ? 'fail' : 'pass'}`}>{s.deleted_at ? 'Stopped' : 'Active'}</span>
                 </td>
+                <td onClick={(e) => e.stopPropagation()}>
+                  <OptionsMenu
+                    items={[
+                      { label: 'Edit', icon: <EditIcon />, onClick: () => handleEditSchedule(s) },
+                      !s.deleted_at && { label: 'Stop', icon: <StopIcon />, onClick: () => handleStopSchedule(s) },
+                      s.deleted_at && { label: 'Delete Forever', icon: <TrashIcon />, onClick: () => handleDeleteForever(s), danger: true, divider: true },
+                    ].filter(Boolean)}
+                  />
+                </td>
               </tr>
             ))}
-            {schedules.length === 0 && <tr><td colSpan={7} className="empty-state">No schedules yet.</td></tr>}
+            {schedules.length === 0 && <tr><td colSpan={8} className="empty-state">No schedules yet.</td></tr>}
           </tbody>
         </table>
         </div>

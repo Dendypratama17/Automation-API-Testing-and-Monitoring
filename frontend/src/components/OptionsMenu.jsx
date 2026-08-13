@@ -22,7 +22,7 @@ import { DotsIcon, ChevronIcon } from './icons.jsx';
  * "Move to Folder" listing every folder) — clicking it swaps the panel to
  * that submenu instead of closing, with a "Back" row to return.
  */
-export default function OptionsMenu({ items }) {
+export default function OptionsMenu({ items, icon, title = 'Options' }) {
   const [open, setOpen] = useState(false);
   const [submenuIndex, setSubmenuIndex] = useState(null);
   const [menuPos, setMenuPos] = useState(null);
@@ -75,10 +75,10 @@ export default function OptionsMenu({ items }) {
       <button
         className="btn-icon"
         onClick={toggleOpen}
-        title="Options"
-        aria-label="Options"
+        title={title}
+        aria-label={title}
       >
-        <DotsIcon />
+        {icon || <DotsIcon />}
       </button>
       {open && menuPos && createPortal(
         <div ref={menuRef} className="options-menu" style={{ position: 'fixed', top: menuPos.top, right: menuPos.right }}>

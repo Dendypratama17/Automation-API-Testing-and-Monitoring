@@ -19,7 +19,11 @@ router.get('/', catchAsync(async (req, res) => {
     params.push(folder_id);
     where = 'WHERE folder_id = $1';
   }
-  const result = await pool.query(`SELECT * FROM endpoints ${where} ORDER BY sort_order ASC, created_at ASC, id ASC`, params);
+  const result = await pool.query(
+    `SELECT id, folder_id, name, method, path_template, headers, body_template, body_type, tags, sort_order, created_at, updated_at
+     FROM endpoints ${where} ORDER BY sort_order ASC, created_at ASC, id ASC`,
+    params
+  );
   res.json(result.rows);
 }));
 

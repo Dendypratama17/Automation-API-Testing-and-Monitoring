@@ -5,6 +5,7 @@ import Import from './pages/Import.jsx';
 import Endpoints from './pages/Endpoints.jsx';
 import Flows from './pages/Flows.jsx';
 import Schedules from './pages/Schedules.jsx';
+import JsonDiff from './pages/JsonDiff.jsx';
 import { ConfirmProvider } from './components/ConfirmProvider.jsx';
 import { ToastProvider } from './components/ToastProvider.jsx';
 
@@ -36,6 +37,12 @@ const ICONS = {
       <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" />
     </svg>
   ),
+  jsonDiff: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="8" height="16" rx="1.5" /><rect x="13" y="4" width="8" height="16" rx="1.5" />
+      <path d="M9.5 12h5" /><path d="M12.5 9.5l2.5 2.5-2.5 2.5" />
+    </svg>
+  ),
 };
 
 const NAV_ITEMS = [
@@ -44,6 +51,7 @@ const NAV_ITEMS = [
   { to: '/endpoints', label: 'Config', icon: 'endpoints' },
   { to: '/flows', label: 'Flows', icon: 'flows' },
   { to: '/schedules', label: 'Schedules', icon: 'schedules' },
+  { to: '/json-diff', label: 'JSON Diff', icon: 'jsonDiff' },
 ];
 
 export default function App() {
@@ -88,6 +96,7 @@ export default function App() {
             <Route path="/endpoints" element={<Endpoints />} />
             <Route path="/flows" element={<Flows />} />
             <Route path="/schedules" element={<Schedules />} />
+            <Route path="/json-diff" element={<JsonDiff />} />
           </Routes>
         </main>
       </div>

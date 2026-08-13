@@ -148,6 +148,11 @@ ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS skip_web_login_refresh BOOLEAN N
 
 ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS delay_ms INT NOT NULL DEFAULT 0;
+-- Runs this step concurrently with the step(s) immediately before it instead
+-- of waiting for them to finish first (see flowExecutor.js's groupIntoBatches)
+-- — e.g. testing two endpoints that legitimately need to be hit at the same
+-- moment, like a sign and a reject racing each other.
+ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS parallel_with_previous BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS flow_runs (
   id SERIAL PRIMARY KEY,
@@ -265,3 +270,41 @@ ALTER TABLE flow_runs ADD CONSTRAINT flow_runs_environment_id_fkey
 ALTER TABLE schedules DROP CONSTRAINT IF EXISTS schedules_environment_id_fkey;
 ALTER TABLE schedules ADD CONSTRAINT schedules_environment_id_fkey
   FOREIGN KEY (environment_id) REFERENCES environments(id) ON DELETE RESTRICT;
+
+-- Response Compare — a baseline response saved per endpoint ("Set as
+-- Reference" on any run's response), diffed on demand against a later run's
+-- response for that same endpoint. diff_ignore_paths holds dot-paths
+-- (e.g. "data.document.id") that are always volatile between runs (ids,
+-- tokens, timestamps) and so are skipped when computing a diff, instead of
+-- drowning every comparison in expected noise.
+ALTER TABLE endpoints ADD COLUMN IF NOT EXISTS diff_reference_response JSONB;
+ALTER TABLE endpoints ADD COLUMN IF NOT EXISTS diff_reference_set_at TIMESTAMPTZ;
+ALTER TABLE endpoints ADD COLUMN IF NOT EXISTS diff_ignore_paths JSONB NOT NULL DEFAULT '[]';
+
+-- A computed diff is only persisted here when the user explicitly clicks
+-- Save — comparing is otherwise a throwaway, on-demand view, not something
+-- that piles up in the DB on every run.
+CREATE TABLE IF NOT EXISTS endpoint_response_diffs (
+  id SERIAL PRIMARY KEY,
+  endpoint_id INT REFERENCES endpoints(id) ON DELETE CASCADE,
+  flow_run_step_id INT REFERENCES flow_run_steps(id) ON DELETE SET NULL,
+  diffs JSONB NOT NULL, -- [{ path, old_value, new_value }, ...]
+  note VARCHAR(500),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_endpoint_response_diffs_endpoint ON endpoint_response_diffs(endpoint_id, created_at);
+
+-- Standalone "paste two JSON blobs and compare" tool (Config-independent —
+-- not tied to any saved Endpoint) — see routes/jsonDiff.js. Saved the same
+-- opt-in way as endpoint_response_diffs: computing a diff doesn't write
+-- anything here until the user explicitly clicks Save.
+CREATE TABLE IF NOT EXISTS saved_json_diffs (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255),
+  json_a JSONB NOT NULL,
+  json_b JSONB NOT NULL,
+  ignore_paths JSONB NOT NULL DEFAULT '[]',
+  diffs JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_saved_json_diffs_created ON saved_json_diffs(created_at);

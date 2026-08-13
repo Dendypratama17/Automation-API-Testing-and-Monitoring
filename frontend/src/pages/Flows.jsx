@@ -2,10 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   getFolders, createFolder, updateFolder, deleteFolder,
   getFlows, getFlow, createFlow, updateFlow, deleteFlow, duplicateFlow, reorderFlows,
-  runFlow, cancelFlowRun, batchRunFlows, runFlowStep, updateFlowStep, updateAllFlowSteps, getEndpoints, getEnvironments, getAuthCredentials, getDefaultHeaders,
+  runFlow, cancelFlowRun, getRunProgress, batchRunFlows, runFlowStep, updateFlowStep, updateAllFlowSteps, getEndpoints, getEnvironments, getAuthCredentials, getDefaultHeaders,
   parseCurlForStep,
 } from '../api/client';
 import JsonBlock from '../components/JsonBlock.jsx';
+import JsonPasteEditor from '../components/JsonPasteEditor.jsx';
 import KeyValueEditor, { objectToRows, rowsToObject } from '../components/KeyValueEditor.jsx';
 import FormDataEditor, { objectToFormRows, formRowsToObject, emptyFormRow } from '../components/FormDataEditor.jsx';
 import { TrashIcon, EditIcon, PlayIcon, ChevronIcon, CopyIcon, GripIcon, FolderIcon, XIcon } from '../components/icons.jsx';
@@ -24,6 +25,27 @@ import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const BODY_METHODS = ['POST', 'PUT'];
+
+// DD/MM/YYYY instead of the browser-locale-dependent default (often M/D/YYYY).
+function formatDateTime(dateStr) {
+  const d = new Date(dateStr);
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return `${day}/${month}/${d.getFullYear()}, ${time}`;
+}
+
+// { [flowId]: environmentId } — each flow remembers its own last-run
+// environment across reloads, so running several flows against different
+// environments doesn't mean re-picking one every time.
+const FLOW_ENV_STORAGE_KEY = 'qa-tool:flow-env-by-id';
+function loadFlowEnvMap() {
+  try {
+    return JSON.parse(localStorage.getItem(FLOW_ENV_STORAGE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
 
 // Short synthesized chime when a run result comes back — no audio asset
 // needed. An ascending two-note tone for PASS, a lower descending tone for
@@ -119,6 +141,7 @@ function formatFailureReasons(errorMessage) {
 function StepResultRow({ step, isLast }) {
   const failureReasons = formatFailureReasons(step.error_message);
   const hasAssertionResults = Array.isArray(step.assertion_results) && step.assertion_results.length > 0;
+
   return (
     <div style={!isLast ? { borderBottom: '1px solid var(--border-soft)', paddingBottom: 20 } : undefined}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -262,7 +285,8 @@ const emptyStep = (defaultHeaders = []) => {
     name: '', endpoint_id: '', method: '', url_template: '', authCredentialId: '',
     headersRows,
     bodyType: 'json', bodyText: '', bodyRows: [emptyFormRow()],
-    extractRows: [], assertionsRows: [], enabled: true, delayMs: '', skipWebLoginRefresh: false,
+    extractRows: [], assertionsRows: [], enabled: true, delayMs: '',
+    parallelWithPrevious: false,
   };
 };
 
@@ -298,7 +322,7 @@ function stepToPayload(step, endpoints) {
     assertions,
     enabled: step.enabled !== false,
     delay_ms: step.delayMs ? Number(step.delayMs) : 0,
-    skip_web_login_refresh: step.skipWebLoginRefresh === true,
+    parallel_with_previous: step.parallelWithPrevious === true,
   };
 }
 
@@ -317,7 +341,7 @@ function stepFromApi(s) {
     assertionsRows: objectToAssertionRows(s.assertions),
     enabled: s.enabled !== false,
     delayMs: s.delay_ms ? String(s.delay_ms) : '',
-    skipWebLoginRefresh: s.skip_web_login_refresh === true,
+    parallelWithPrevious: s.parallel_with_previous === true,
   };
 }
 
@@ -330,8 +354,19 @@ export default function Flows() {
   const [endpoints, setEndpoints] = useState([]);
   const [endpointFolders, setEndpointFolders] = useState([]);
   const [environments, setEnvironments] = useState([]);
-  const [selectedEnv, setSelectedEnv] = useState(null);
-  const [envError, setEnvError] = useState(false);
+  // Per-flow environment choice (Play button on a Flow List row, running a
+  // single step from the View Flow panel, and Batch Run — which reuses each
+  // selected flow's own row environment rather than a separate picker, so
+  // they all have to agree) — persisted so each flow keeps running against
+  // whichever environment it was last set to, even across a reload.
+  const [flowEnvIds, setFlowEnvIds] = useState(loadFlowEnvMap);
+  const setFlowEnv = (flowId, envId) => {
+    setFlowEnvIds((prev) => {
+      const next = { ...prev, [flowId]: envId };
+      localStorage.setItem(FLOW_ENV_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
   const [authCredentials, setAuthCredentials] = useState([]);
   const [defaultHeaders, setDefaultHeaders] = useState([]);
 
@@ -343,13 +378,16 @@ export default function Flows() {
   const [curlPasteText, setCurlPasteText] = useState('');
   const [curlPasteError, setCurlPasteError] = useState('');
   const [curlPasteLoading, setCurlPasteLoading] = useState(false);
-  const [flowNameError, setFlowNameError] = useState(false);
-  const flowNameRef = useRef(null);
+  const [bulkAuthCredentialId, setBulkAuthCredentialId] = useState('');
   const [error, setError] = useState('');
   const [runResult, setRunResult] = useState(null);
   const [running, setRunning] = useState(false);
   const [runningFlowId, setRunningFlowId] = useState(null);
   const [runningToken, setRunningToken] = useState(null);
+  // Batch Run shares runningToken (for live-progress polling) but isn't
+  // individually cancellable per-flow — this just hides the Cancel button
+  // rather than showing one that would silently do nothing.
+  const [runningIsBatch, setRunningIsBatch] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [runningStepId, setRunningStepId] = useState(null);
   const [selectedFlowIds, setSelectedFlowIds] = useState(new Set());
@@ -442,13 +480,11 @@ export default function Flows() {
     setError('');
     setExpandedStep(0);
     setStepErrors({});
-    setFlowNameError(false);
     setViewingFlow(null);
     setEditingFlow({
       name: '', description: '',
       folder_id: typeof selectedFolderId === 'number' ? selectedFolderId : null,
       stop_on_failure: true,
-      web_login_credential_id: null,
       steps: [emptyStep(defaultHeaders)],
     });
   };
@@ -458,7 +494,6 @@ export default function Flows() {
     setError('');
     setExpandedStep(null);
     setStepErrors({});
-    setFlowNameError(false);
     setViewingFlow(null);
     const flow = await getFlow(id);
     setEditingFlow({ ...flow, steps: flow.steps.map(stepFromApi) });
@@ -494,7 +529,6 @@ export default function Flows() {
         description: viewingFlow.description,
         folder_id: viewingFlow.folder_id,
         stop_on_failure: viewingFlow.stop_on_failure,
-        web_login_credential_id: viewingFlow.web_login_credential_id,
         steps,
       });
     } catch (err) {
@@ -569,10 +603,6 @@ export default function Flows() {
     setEditingFlow({ ...editingFlow, steps });
   };
 
-  const handleToggleAllStepsEditing = (enabled) => {
-    setEditingFlow({ ...editingFlow, steps: editingFlow.steps.map((s) => ({ ...s, enabled })) });
-  };
-
   // bodyText (JSON) and bodyRows (Form Data) are two independent copies of
   // the same body, only ever synced once when an endpoint is first selected
   // — so anything that changes bodyRows afterward (e.g. FormDataEditor's
@@ -635,15 +665,6 @@ export default function Flows() {
     const assertionsRows = ep && !hasStatusCodeAssertion
       ? [{ ...emptyAssertionRow(), type: 'status_code_in', expected: '200,201' }, ...steps[idx].assertionsRows]
       : steps[idx].assertionsRows;
-    // Default a fresh step's Authorization to the flow's own "Refresh auth
-    // via" credential too — otherwise it silently sends no Authorization
-    // header at all, since that flow-level credential only refreshes a
-    // Bearer header a step already has, it doesn't add one from scratch.
-    // Never overrides a credential the step already has, and skipped for a
-    // step opted out of that flow-level credential.
-    const authCredentialId = ep && !steps[idx].authCredentialId && !steps[idx].skipWebLoginRefresh && editingFlow.web_login_credential_id
-      ? String(editingFlow.web_login_credential_id)
-      : steps[idx].authCredentialId;
     steps[idx] = {
       ...steps[idx],
       endpoint_id: endpointId,
@@ -656,9 +677,25 @@ export default function Flows() {
         : '',
       bodyRows: ep ? objectToFormRows(ep.body_template) : steps[idx].bodyRows,
       assertionsRows,
-      authCredentialId,
     };
     setEditingFlow({ ...editingFlow, steps });
+    if (endpointId) {
+      // Picking an endpoint reveals a bunch of new fields below (body,
+      // assertions, ...) — wait for that taller layout to actually finish
+      // rendering/painting before scrolling, so the distance below is
+      // measured against the step's new (taller) bottom edge, not its old
+      // one. A single scrollBy computed from the element's own position
+      // (rather than scrollIntoView) — issuing two separate smooth-scroll
+      // calls back to back has the second one cut the first's animation
+      // short, landing well short of the target.
+      setTimeout(() => {
+        const el = stepRefs.current[idx];
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const extraPeek = 100; // scroll a bit past the step's own bottom edge
+        window.scrollBy({ top: rect.bottom - window.innerHeight + extraPeek, behavior: 'smooth' });
+      }, 100);
+    }
   };
 
   const startCurlPaste = (idx) => {
@@ -675,11 +712,10 @@ export default function Flows() {
   // Fills a step directly from a pasted curl command instead of picking a
   // saved Endpoint — for a one-off request that doesn't need its own
   // reusable Endpoint template. Mirrors handleSelectEndpoint's auto-fill
-  // (default status assertion, flow-level Authorization fallback), except
-  // when the curl itself already carries a real Authorization header — that
-  // was deliberately captured for this exact request, so it's kept as-is
-  // (skip_web_login_refresh) instead of getting silently swapped for the
-  // flow's Web Login credential on the next run.
+  // (default status assertion), except when the curl itself already carries
+  // a real Authorization header — that was deliberately captured for this
+  // exact request, so any credential the step already had is cleared, or
+  // the header we just pasted would be silently ignored in favor of it.
   const handleParseCurlForStep = async (idx) => {
     if (!curlPasteText.trim()) return;
     setCurlPasteError('');
@@ -695,16 +731,7 @@ export default function Flows() {
         ? [{ ...emptyAssertionRow(), type: 'status_code_in', expected: '200,201' }, ...steps[idx].assertionsRows]
         : steps[idx].assertionsRows;
 
-      // A step's own `authCredentialId` always wins over a raw Authorization
-      // header at run time — so if the curl came with its own Authorization,
-      // any credential this step already had (even one that was auto-filled
-      // moments ago from the flow's "Refresh auth via") must be cleared, or
-      // the header we just pasted would be silently ignored in favor of it.
-      const authCredentialId = hasAuthHeader
-        ? ''
-        : (!steps[idx].authCredentialId && !steps[idx].skipWebLoginRefresh && editingFlow.web_login_credential_id
-          ? String(editingFlow.web_login_credential_id)
-          : steps[idx].authCredentialId);
+      const authCredentialId = hasAuthHeader ? '' : steps[idx].authCredentialId;
 
       const bodyIsObject = parsed.body && typeof parsed.body === 'object';
       steps[idx] = {
@@ -718,7 +745,6 @@ export default function Flows() {
         bodyRows: parsed.is_multipart ? objectToFormRows(parsed.body) : [emptyFormRow()],
         assertionsRows,
         authCredentialId,
-        skipWebLoginRefresh: hasAuthHeader ? true : steps[idx].skipWebLoginRefresh,
       };
       setEditingFlow({ ...editingFlow, steps });
       setCurlPasteIdx(null);
@@ -735,9 +761,6 @@ export default function Flows() {
   const handleSaveFlow = async () => {
     setError('');
 
-    const nameInvalid = !editingFlow.name.trim();
-    setFlowNameError(nameInvalid);
-
     const errors = {};
     editingFlow.steps.forEach((step, idx) => {
       const e = {};
@@ -745,29 +768,26 @@ export default function Flows() {
       if (Object.keys(e).length) errors[idx] = e;
     });
     setStepErrors(errors);
-    if (nameInvalid || Object.keys(errors).length) {
-      if (nameInvalid) {
-        flowNameRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      } else {
-        const firstErrorIdx = Number(Object.keys(errors)[0]);
-        setExpandedStep(firstErrorIdx);
-        // Wait a tick for the step to expand (its height changes) before
-        // measuring where to scroll, so it doesn't land in the wrong spot.
-        setTimeout(() => {
-          stepRefs.current[firstErrorIdx]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 0);
-      }
+    if (Object.keys(errors).length) {
+      const firstErrorIdx = Number(Object.keys(errors)[0]);
+      setExpandedStep(firstErrorIdx);
+      // Wait a tick for the step to expand (its height changes) before
+      // measuring where to scroll, so it doesn't land in the wrong spot.
+      setTimeout(() => {
+        stepRefs.current[firstErrorIdx]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 0);
       return;
     }
 
     try {
       const steps = editingFlow.steps.map((step) => stepToPayload(step, endpoints));
+      // Not required — falls back to a generic default so a flow can be
+      // saved without stopping to think of a name up front.
       const payload = {
-        name: editingFlow.name,
+        name: editingFlow.name.trim() || 'Untitled Flow',
         description: editingFlow.description,
         folder_id: editingFlow.folder_id,
         stop_on_failure: editingFlow.stop_on_failure,
-        web_login_credential_id: editingFlow.web_login_credential_id || null,
         steps,
       };
       const wasEditing = !!editingFlow.id;
@@ -806,17 +826,14 @@ export default function Flows() {
       description: flow.description,
       folder_id: folderId,
       stop_on_failure: flow.stop_on_failure,
-      web_login_credential_id: flow.web_login_credential_id,
       steps: flow.steps,
     });
     refreshFlowList();
   };
 
   const handleRunFlow = async (flowId, confirmProd = false) => {
-    if (!selectedEnv) {
-      setEnvError(true);
-      return;
-    }
+    const envId = flowEnvIds[flowId];
+    if (!envId) return; // Play button is disabled without one — nothing to run yet
     setEditingFlow(null);
     setViewingFlow(null);
     setRunning(true);
@@ -827,6 +844,7 @@ export default function Flows() {
     // never got past the confirmation gate to execute anything).
     const runToken = crypto.randomUUID();
     setRunningToken(runToken);
+    setRunningIsBatch(false);
     setCancelling(false);
     setRunResult(null);
     setBatchRunResult(null);
@@ -836,8 +854,12 @@ export default function Flows() {
     // finally must not stomp on it while the confirmed run is still in flight.
     let handedOff = false;
     try {
-      const res = await runFlow(flowId, { environment_id: selectedEnv, confirm_prod: confirmProd, run_token: runToken });
-      setRunResult({ ...res, flow_name: flows.find((f) => f.id === flowId)?.name || 'Flow' });
+      const res = await runFlow(flowId, { environment_id: envId, confirm_prod: confirmProd, run_token: runToken });
+      setRunResult({
+        ...res,
+        flow_name: flows.find((f) => f.id === flowId)?.name || 'Flow',
+        environment_name: environments.find((e) => e.id === envId)?.name || '',
+      });
     } catch (err) {
       if (err.response?.status === 412) {
         if (await confirm(err.response.data.message + ' Continue?')) {
@@ -857,6 +879,33 @@ export default function Flows() {
       }
     }
   };
+
+  // Polls whichever steps have completed so far for the in-flight run (or
+  // Batch Run — see runningIsBatch), so the "Running…" card can render them
+  // as they land instead of showing nothing until the whole thing finishes.
+  // `segments` is one entry per flow run under this token: always exactly
+  // one for a plain run, one per flow (in start order) for a batch — see
+  // backend/src/services/runProgress.js. Starts as soon as a runningToken
+  // shows up, stops (and clears) the moment it's cleared back to null.
+  const [liveSegments, setLiveSegments] = useState([]);
+  useEffect(() => {
+    if (!runningToken) {
+      setLiveSegments([]);
+      return;
+    }
+    let stopped = false;
+    const poll = () => {
+      getRunProgress(runningToken).then((data) => {
+        if (!stopped) setLiveSegments(data.segments || []);
+      }).catch(() => {});
+    };
+    poll();
+    const interval = setInterval(poll, 800);
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+    };
+  }, [runningToken]);
 
   const handleCancelRun = async () => {
     if (!runningToken || cancelling) return;
@@ -907,14 +956,30 @@ export default function Flows() {
   // Runs every selected flow in sequence against one environment, chaining
   // each flow's extracted variables into the next (e.g. Login then Get
   // Profile reusing the token Login extracted) — see routes/flows.js /batch-run.
+  // No separate "batch environment" picker — reuses whichever environment is
+  // already set on each selected flow's own Flow List row, which all have to
+  // agree for the chain to make sense (a token extracted from a STG run
+  // shouldn't get reused against RC).
   const handleBatchRun = async (confirmProd = false) => {
-    if (!selectedEnv) {
-      setEnvError(true);
+    const selected = flows.filter((f) => selectedFlowIds.has(f.id));
+    if (selected.some((f) => !flowEnvIds[f.id])) {
+      showToast('Set an environment for every selected flow first.', 'error');
+      return;
+    }
+    const envIds = [...new Set(selected.map((f) => flowEnvIds[f.id]))];
+    if (envIds.length > 1) {
+      showToast('Selected flows must all use the same environment to batch run together.', 'error');
       return;
     }
     setEditingFlow(null);
     setViewingFlow(null);
     setRunning(true);
+    // Reused purely so the same live-progress polling effect (keyed off
+    // runningToken) picks this up too — see runningIsBatch for why Cancel
+    // stays hidden for this case.
+    const runToken = crypto.randomUUID();
+    setRunningToken(runToken);
+    setRunningIsBatch(true);
     setRunResult(null);
     setBatchRunResult(null);
     setError('');
@@ -924,9 +989,10 @@ export default function Flows() {
         // Follow the Flow List's current visual/drag order, not the Set's
         // insertion order (which is whichever order the checkboxes were
         // clicked in and can drift from the list after a reorder).
-        flow_ids: flows.filter((f) => selectedFlowIds.has(f.id)).map((f) => f.id),
-        environment_id: selectedEnv,
+        flow_ids: selected.map((f) => f.id),
+        environment_id: envIds[0],
         confirm_prod: confirmProd,
+        run_token: runToken,
       });
       setBatchRunResult(res);
     } catch (err) {
@@ -942,6 +1008,8 @@ export default function Flows() {
     } finally {
       if (!handedOff) {
         setRunning(false);
+        setRunningToken(null);
+        setRunningIsBatch(false);
       }
     }
   };
@@ -950,10 +1018,8 @@ export default function Flows() {
   // re-testing a single request from the read-only View Flow panel without
   // re-running the whole flow, and without losing that panel's context.
   const handleRunStep = async (flowId, stepId, confirmProd = false) => {
-    if (!selectedEnv) {
-      setEnvError(true);
-      return;
-    }
+    const envId = flowEnvIds[flowId];
+    if (!envId) return; // Play button is disabled without one — nothing to run yet
     setRunning(true);
     setRunningStepId(stepId);
     setRunResult(null);
@@ -961,8 +1027,12 @@ export default function Flows() {
     setError('');
     let handedOff = false;
     try {
-      const res = await runFlowStep(flowId, stepId, { environment_id: selectedEnv, confirm_prod: confirmProd });
-      setRunResult({ ...res, flow_name: flows.find((f) => f.id === flowId)?.name || 'Flow' });
+      const res = await runFlowStep(flowId, stepId, { environment_id: envId, confirm_prod: confirmProd });
+      setRunResult({
+        ...res,
+        flow_name: flows.find((f) => f.id === flowId)?.name || 'Flow',
+        environment_name: environments.find((e) => e.id === envId)?.name || '',
+      });
     } catch (err) {
       if (err.response?.status === 412) {
         if (await confirm(err.response.data.message + ' Continue?')) {
@@ -1006,9 +1076,10 @@ export default function Flows() {
   };
 
   // Save Flow stays disabled (and quiet) until every required field is
-  // actually filled in — a name, and every step pointed at either an
-  // endpoint or a pasted curl command.
-  const canSaveFlow = !!(editingFlow && editingFlow.name.trim() && editingFlow.steps.every((s) => s.endpoint_id || s.url_template));
+  // actually filled in — a name isn't one of them (falls back to the first
+  // step's endpoint name), just every step pointed at either an endpoint or
+  // a pasted curl command.
+  const canSaveFlow = !!(editingFlow && editingFlow.steps.length > 0 && editingFlow.steps.every((s) => s.endpoint_id || s.url_template));
 
   const folderNameById = Object.fromEntries(endpointFolders.map((f) => [f.id, f.name]));
   const endpointsByFolder = endpoints.reduce((acc, ep) => {
@@ -1047,22 +1118,17 @@ export default function Flows() {
             <div className="card-row">
               <h4 style={{ margin: 0 }}>Flow List</h4>
               <div className="toolbar">
-                <select
-                  value={selectedEnv || ''}
-                  onChange={(e) => { setSelectedEnv(e.target.value ? Number(e.target.value) : null); setEnvError(false); }}
-                  style={{ borderColor: envError ? 'var(--fail)' : undefined }}
-                >
-                  <option value="">Select Environment</option>
-                  {environments.map((env) => (
-                    <option key={env.id} value={env.id}>{env.name}{env.is_protected ? ' (protected)' : ''}</option>
-                  ))}
-                </select>
                 {selectedFlowIds.size > 0 && (
-                  <button className="btn-primary" onClick={() => handleBatchRun()} disabled={running}>
+                  <button
+                    className="btn-primary"
+                    onClick={() => handleBatchRun()}
+                    disabled={running}
+                    title="Uses whichever environment is already set on each selected flow's row — they all have to match."
+                  >
                     Run Selected ({selectedFlowIds.size})
                   </button>
                 )}
-                <button className="btn-primary" onClick={openNewFlow}>+ New Flow</button>
+                <button className={`btn-primary${editingFlow ? '' : ' btn-ready'}`} onClick={openNewFlow}>+ New Flow</button>
               </div>
             </div>
             <div className="table-scroll-x">
@@ -1078,8 +1144,9 @@ export default function Flows() {
                       title="Select all"
                     />
                   </th>
-                  <th style={{ width: 480 }}>Name</th>
+                  <th style={{ width: 400 }}>Name</th>
                   <th style={{ width: 80 }}>Steps</th>
+                  <th style={{ width: 110 }}>Environment</th>
                   <th style={{ width: 120 }}>Action</th>
                 </tr>
               </thead>
@@ -1092,6 +1159,7 @@ export default function Flows() {
                       cursor: 'pointer',
                       opacity: draggedFlowId === f.id ? 0.4 : 1,
                       borderTop: dragOverFlowId === f.id && draggedFlowId !== f.id ? '2px solid var(--accent)' : undefined,
+                      background: (editingFlow?.id === f.id || viewingFlow?.id === f.id) ? 'var(--surface-2)' : undefined,
                     }}
                     title="Click to view step detail"
                     draggable
@@ -1112,15 +1180,27 @@ export default function Flows() {
                       />
                     </td>
                     <td>
-                      <span className="truncate" style={{ width: 440 }}>{f.name}</span>
+                      <span className="truncate" style={{ width: 360 }}>{f.name}</span>
                     </td>
                     <td>{f.step_count}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <select
+                        value={flowEnvIds[f.id] || ''}
+                        onChange={(e) => setFlowEnv(f.id, e.target.value ? Number(e.target.value) : null)}
+                        style={{ width: '100%' }}
+                      >
+                        <option value="">Select env...</option>
+                        {environments.map((env) => (
+                          <option key={env.id} value={env.id}>{env.name}{env.is_protected ? ' (protected)' : ''}</option>
+                        ))}
+                      </select>
+                    </td>
                     <td className="row-actions">
                       <button
                         className="btn-icon"
                         onClick={(e) => { e.stopPropagation(); handleRunFlow(f.id); }}
-                        disabled={running}
-                        title="Run"
+                        disabled={running || !flowEnvIds[f.id]}
+                        title={flowEnvIds[f.id] ? 'Run' : 'Select an environment first'}
                         aria-label="Run"
                       >
                         {runningFlowId === f.id ? <span className="spinner" /> : <PlayIcon />}
@@ -1146,7 +1226,7 @@ export default function Flows() {
                     </td>
                   </tr>
                 ))}
-                {flows.length === 0 && <tr><td colSpan={5} className="empty-state">No flows yet.</td></tr>}
+                {flows.length === 0 && <tr><td colSpan={6} className="empty-state">No flows yet.</td></tr>}
               </tbody>
             </table>
             </div>
@@ -1211,9 +1291,9 @@ export default function Flows() {
                       <button
                         className="btn-icon"
                         style={{ marginLeft: 'auto' }}
-                        disabled={running}
+                        disabled={running || !flowEnvIds[viewingFlow.id]}
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRunStep(viewingFlow.id, s.id); }}
-                        title="Run this step only"
+                        title={flowEnvIds[viewingFlow.id] ? 'Run this step only' : 'Select an environment for this flow in the Flow List first'}
                         aria-label="Run this step only"
                       >
                         {runningStepId === s.id ? <span className="spinner" /> : <PlayIcon />}
@@ -1277,7 +1357,7 @@ export default function Flows() {
           )}
 
           {editingFlow && (
-            <div className="card" ref={flowNameRef}>
+            <div className="card">
               <div className="card-row">
                 <h4 style={{ margin: 0 }}>{editingFlow.id ? `Edit Flow: ${editingFlow.name}` : 'New Flow'}</h4>
                 <button
@@ -1291,13 +1371,10 @@ export default function Flows() {
               </div>
               <div className="toolbar" style={{ marginBottom: 4, flexWrap: 'nowrap' }}>
                 <input
-                  placeholder="Flow name..."
+                  placeholder="Flow name (optional)"
                   value={editingFlow.name}
-                  onChange={(e) => {
-                    setEditingFlow({ ...editingFlow, name: e.target.value });
-                    if (e.target.value.trim() && flowNameError) setFlowNameError(false);
-                  }}
-                  style={{ flex: 1, minWidth: 0, borderColor: flowNameError ? 'var(--fail)' : undefined }}
+                  onChange={(e) => setEditingFlow({ ...editingFlow, name: e.target.value })}
+                  style={{ flex: 1, minWidth: 0 }}
                 />
                 <select
                   value={editingFlow.folder_id ?? ''}
@@ -1308,32 +1385,23 @@ export default function Flows() {
                   {flattenFolders(folders).map((f) => <option key={f.id} value={f.id}>{folderOptionLabel(f)}</option>)}
                 </select>
                 <select
-                  value={editingFlow.web_login_credential_id ?? ''}
+                  value={bulkAuthCredentialId}
                   onChange={(e) => {
-                    const credentialId = e.target.value ? Number(e.target.value) : null;
-                    // Backfill this credential into every step that doesn't
-                    // already have its own Authorization set, so picking it
-                    // here is enough on its own — without this, a step left
-                    // on "None" would send no Authorization header at all,
-                    // since this credential only refreshes a Bearer header a
-                    // step already has, it doesn't add one from scratch.
-                    // Never overrides a credential a step already has, and
-                    // skips a step opted out via "Don't refresh...".
-                    const steps = credentialId
-                      ? editingFlow.steps.map((step) => (
-                        !step.authCredentialId && !step.skipWebLoginRefresh
-                          ? { ...step, authCredentialId: String(credentialId) }
-                          : step
-                      ))
-                      : editingFlow.steps;
-                    setEditingFlow({ ...editingFlow, web_login_credential_id: credentialId, steps });
+                    const credId = e.target.value;
+                    if (credId) {
+                      const steps = editingFlow.steps.map((step) => (
+                        !step.authCredentialId ? { ...step, authCredentialId: credId } : step
+                      ));
+                      setEditingFlow({ ...editingFlow, steps });
+                    }
+                    setBulkAuthCredentialId('');
                   }}
                   style={{ flexShrink: 0 }}
-                  title="On every run, refreshes the Authorization header of every step that already has one set — no per-step assignment needed."
+                  title="Fills the Authorization of every step that doesn't have one set yet. Each step keeps that credential going forward — token refresh happens automatically whenever it's close to expiring, no flow-level setting needed."
                 >
-                  <option value="">No Web Login refresh</option>
-                  {authCredentials.filter((c) => c.type === 'web_login').map((c) => (
-                    <option key={c.id} value={c.id}>Refresh auth via: {c.name}</option>
+                  <option value="">Select account</option>
+                  {authCredentials.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>
                 <label style={{ flexShrink: 0, whiteSpace: 'nowrap', marginLeft: 'auto' }}>
@@ -1347,14 +1415,6 @@ export default function Flows() {
 
               <div className="card-row" style={{ marginTop: 20 }}>
                 <h4 style={{ margin: 0 }}>Steps</h4>
-                {editingFlow.steps.length > 0 && (
-                  <button
-                    className="btn-quiet"
-                    onClick={() => handleToggleAllStepsEditing(!editingFlow.steps.every((s) => s.enabled !== false))}
-                  >
-                    {editingFlow.steps.every((s) => s.enabled !== false) ? 'Unselect All' : 'Select All'}
-                  </button>
-                )}
               </div>
               <div className="stack">
                 {editingFlow.steps.map((step, idx) => (
@@ -1430,7 +1490,7 @@ export default function Flows() {
                       <ChevronIcon style={{ transform: 'rotate(90deg)', cursor: 'pointer' }} onClick={() => setExpandedStep(null)} />
                       <span className="step-number-badge">{idx + 1}</span>
                       <input
-                        placeholder="Step name (defaults to endpoint name if left blank)"
+                        placeholder="Step name (optional)"
                         value={step.name}
                         onChange={(e) => handleStepChange(idx, 'name', e.target.value)}
                         style={{ flex: 1 }}
@@ -1446,9 +1506,22 @@ export default function Flows() {
                     <div className="toolbar" style={{ marginBottom: 8, flexWrap: 'nowrap' }}>
                       <select
                         value={step.endpoint_id}
-                        onChange={(e) => handleSelectEndpoint(idx, e.target.value)}
-                        style={{ flex: 1, minWidth: 0, borderColor: stepErrors[idx]?.endpoint ? 'var(--fail)' : undefined }}
+                        onChange={(e) => {
+                          if (e.target.value === '__paste_curl__') {
+                            startCurlPaste(idx);
+                            return;
+                          }
+                          handleSelectEndpoint(idx, e.target.value);
+                        }}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          borderColor: stepErrors[idx]?.endpoint
+                            ? 'var(--fail)'
+                            : (!step.endpoint_id && !step.url_template ? 'var(--drift)' : undefined),
+                        }}
                       >
+                        <option value="__paste_curl__">Paste curl...</option>
                         <option value="">Select endpoint</option>
                         {Object.entries(endpointsByFolder).map(([key, list]) => (
                           <optgroup key={key} label={key === 'none' ? 'No Folder' : (folderNameById[key] || 'Folder')}>
@@ -1474,15 +1547,6 @@ export default function Flows() {
                           style={{ flex: 1, minWidth: 0 }}
                         />
                       )}
-                      <button
-                        type="button"
-                        className="btn-quiet"
-                        style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
-                        onClick={() => (curlPasteIdx === idx ? cancelCurlPaste() : startCurlPaste(idx))}
-                        title="Fill this step directly from a pasted curl command instead of picking a saved endpoint"
-                      >
-                        {curlPasteIdx === idx ? 'Cancel curl' : 'Paste curl'}
-                      </button>
                     </div>
 
                     {curlPasteIdx === idx && (
@@ -1510,6 +1574,7 @@ export default function Flows() {
                       </div>
                     )}
 
+                    {(step.endpoint_id || step.url_template) && (
                     <div className="toolbar" style={{ marginBottom: 8 }}>
                       <label className="hint" style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}>Delay before this step</label>
                       <input
@@ -1524,6 +1589,18 @@ export default function Flows() {
                       />
                       <span className="hint" style={{ fontSize: 12.5 }}>s</span>
                     </div>
+                    )}
+
+                    {idx > 0 && (
+                      <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 12.5 }}>
+                        <input
+                          type="checkbox"
+                          checked={step.parallelWithPrevious === true}
+                          onChange={(e) => handleStepChange(idx, 'parallelWithPrevious', e.target.checked)}
+                        />
+                        Run this step at the same time as the previous one, instead of waiting for it to finish
+                      </label>
+                    )}
 
                     {(step.endpoint_id || step.url_template) && (
                     <details style={{ marginTop: 18, marginBottom: 14 }}>
@@ -1536,16 +1613,6 @@ export default function Flows() {
                           onChange={(patch) => handleAuthorizationFieldChange(idx, patch)}
                         />
                       </div>
-                      {editingFlow.web_login_credential_id && (
-                        <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12.5 }}>
-                          <input
-                            type="checkbox"
-                            checked={step.skipWebLoginRefresh === true}
-                            onChange={(e) => handleStepChange(idx, 'skipWebLoginRefresh', e.target.checked)}
-                          />
-                          Don't refresh this step's Authorization from the flow's Web Login credential
-                        </label>
-                      )}
                     </details>
                     )}
 
@@ -1588,13 +1655,13 @@ export default function Flows() {
                             />
                           </div>
                         ) : (
-                          <textarea
-                            value={step.bodyText}
-                            onChange={(e) => handleStepChange(idx, 'bodyText', e.target.value)}
-                            rows={16}
-                            className="mono"
-                            style={{ width: '100%', marginBottom: 16 }}
-                          />
+                          <div style={{ marginBottom: 16 }}>
+                            <JsonPasteEditor
+                              value={step.bodyText}
+                              onChange={(text) => handleStepChange(idx, 'bodyText', text)}
+                              height={360}
+                            />
+                          </div>
                         )}
                       </>
                     )}
@@ -1641,34 +1708,62 @@ export default function Flows() {
             </div>
           )}
 
-          {running && !runResult && !batchRunResult && (
-            <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span className="spinner" />
-              <span className="hint">{cancelling ? 'Cancelling…' : 'Running flow…'}</span>
-              {runningToken && (
-                <button
-                  className="btn-quiet"
-                  style={{ marginLeft: 'auto' }}
-                  disabled={cancelling}
-                  onClick={handleCancelRun}
-                  title="Stops the run at the next step boundary — whatever already completed is kept."
-                >
-                  Cancel
-                </button>
-              )}
-            </div>
-          )}
+          {running && !runResult && !batchRunResult && (() => {
+            const totalSteps = liveSegments.reduce((sum, seg) => sum + seg.steps.length, 0);
+            return (
+              <div className="card">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span className="spinner" />
+                  <span className="hint">{cancelling ? 'Cancelling…' : runningIsBatch ? 'Running batch…' : 'Running flow…'}</span>
+                  {totalSteps > 0 && (
+                    <span className="hint">{totalSteps} step{totalSteps === 1 ? '' : 's'} done so far</span>
+                  )}
+                  {runningToken && !runningIsBatch && (
+                    <button
+                      className="btn-quiet"
+                      style={{ marginLeft: 'auto' }}
+                      disabled={cancelling}
+                      onClick={handleCancelRun}
+                      title="Stops the run at the next step boundary — whatever already completed is kept."
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+                {liveSegments.map((seg, segIdx) => (
+                  seg.steps.length > 0 && (
+                    <div key={segIdx} style={segIdx > 0 ? { marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border-soft)' } : { marginTop: 16 }}>
+                      {runningIsBatch && (
+                        <div className="field-label" style={{ marginBottom: 8 }}>{seg.flow_name}</div>
+                      )}
+                      <div className="stack" style={{ gap: 20 }}>
+                        {seg.steps.map((s, idx) => (
+                          <StepResultRow key={s.step_order} step={s} isLast={idx === seg.steps.length - 1} />
+                        ))}
+                      </div>
+                    </div>
+                  )
+                ))}
+              </div>
+            );
+          })()}
 
           {runResult && (
             <div className="card">
               <div className="card-row">
                 <h4 style={{ margin: 0 }}>
-                  Run Result — <span className={`badge ${runResult.flow_run.status.toLowerCase()}`}>{runResult.flow_run.status}</span>
+                  Run Result: {runResult.flow_name} — <span className={`badge ${runResult.flow_run.status.toLowerCase()}`}>{runResult.flow_run.status}</span>
                 </h4>
                 <div className="toolbar">
                   <button onClick={() => exportRunResultToPdf(runResult)}>Export PDF</button>
                   <button className="btn-quiet" onClick={() => setRunResult(null)}>✕ Close</button>
                 </div>
+              </div>
+              <div className="hint" style={{ display: 'flex', gap: 16, fontSize: 12.5, marginTop: 4, flexWrap: 'wrap' }}>
+                {runResult.environment_name && <span>Environment: {runResult.environment_name}</span>}
+                <span>Run at {formatDateTime(runResult.flow_run.created_at)}</span>
+                <span>Duration: {runResult.steps.reduce((sum, s) => sum + (s.response_time_ms || 0), 0)}ms</span>
+                <span>{runResult.steps.length} step{runResult.steps.length === 1 ? '' : 's'}</span>
               </div>
               <div className="stack" style={{ marginTop: 16, gap: 20 }}>
                 {runResult.steps.map((s, idx) => (

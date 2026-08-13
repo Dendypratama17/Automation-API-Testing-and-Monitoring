@@ -34,6 +34,7 @@ function endpointToForm(ep) {
     bodyType: ep.body_type || 'json',
     bodyText: JSON.stringify(ep.body_template || {}, null, 2),
     bodyRows: objectToFormRows(ep.body_template),
+    tags: ep.tags || [],
   };
 }
 
@@ -140,7 +141,7 @@ export default function Endpoints() {
         headers,
         body_template,
         body_type: editing.bodyType,
-        tags: [],
+        tags: editing.tags || [],
       });
       setEditing(null);
       refreshList();

@@ -2,6 +2,7 @@ const axios = require('axios');
 const crypto = require('crypto');
 const { generateSchema, diffSchema } = require('./schemaTool');
 const { isCancelled } = require('./runCancellation');
+const { pushProgress } = require('./runProgress');
 
 const SEVERITY = { PASS: 0, SCHEMA_DRIFT: 1, FAIL: 2, ERROR: 3 };
 
@@ -301,6 +302,160 @@ function checkAssertions(assertions, response, responseTimeMs) {
   });
 }
 
+// Runs one step against a read-only snapshot of the variable scope (never
+// mutates it — request_id/random are freshly derived per call instead of
+// written onto a shared object) so this is safe to fire concurrently for
+// several steps at once, not just one at a time. Whatever it extracts is
+// handed back for the caller to merge into the shared scope once the step
+// (or its whole parallel batch) has finished.
+async function runStep(step, baseVariables, flow, authCredentials, previousSchemas) {
+  // Waited before this step runs at all — e.g. giving an async backend
+  // process (document indexing, a webhook) time to finish before the next
+  // check, without hardcoding a delay into every step's own request. Runs
+  // independently of any other step in the same parallel batch.
+  if (step.delay_ms > 0) await sleep(step.delay_ms);
+
+  // Fresh per request (not per flow run) — lets a {{request_id}} header
+  // uniquely trace each individual call, even across steps in the same run.
+  // {{random}} is a short random string for body/URL fields that need a
+  // unique value on every run (e.g. a document title) without wiring up an
+  // Extract Variable rule just for that.
+  const variables = {
+    ...baseVariables,
+    request_id: crypto.randomUUID(),
+    random: crypto.randomBytes(4).toString('hex'),
+  };
+
+  const url = resolveDeep(step.url_template, variables);
+  const headers = resolveDeep(activeHeaders(step.headers), variables);
+  // Each step's own Authorization credential is the only source — no
+  // flow-level fallback. getWebLoginToken() (see flowRunner.js) already
+  // re-logs-in whenever a credential's cached token is near expiry, so a
+  // step referencing a credential always gets a fresh-enough token without
+  // needing any extra opt-in/opt-out here.
+  if (step.auth_credential_id && authCredentials[step.auth_credential_id]) {
+    const cred = authCredentials[step.auth_credential_id];
+    if (cred.type === 'web_login') {
+      headers['Authorization'] = `Bearer ${cred.token}`;
+    } else {
+      const basic = Buffer.from(`${cred.username}:${cred.password}`).toString('base64');
+      headers['Authorization'] = `Basic ${basic}`;
+    }
+  }
+  // A manually-typed or {{variable}}-templated Authorization value (e.g. a
+  // raw token extracted from a login step's response) commonly forgets the
+  // "Bearer " scheme prefix, which silently turns into a 401 — add it back
+  // when it's missing, unless some other scheme (Basic, Digest, ...) is
+  // already present.
+  const authKey = Object.keys(headers).find((k) => k.toLowerCase() === 'authorization');
+  if (authKey && typeof headers[authKey] === 'string' && headers[authKey].trim() && !/^[a-z]+\s/i.test(headers[authKey].trim())) {
+    headers[authKey] = `Bearer ${headers[authKey].trim()}`;
+  }
+  const resolvedBody = step.body_template != null ? resolveDeep(step.body_template, variables) : undefined;
+
+  const start = Date.now();
+  let stepResult;
+  const extractedVariables = {};
+
+  try {
+    // Fetching a __file_url__ field can fail (bad URL, timeout, 404) —
+    // done inside the try so that surfaces as this step's own ERROR result
+    // instead of crashing the whole flow run.
+    const bodyWithFiles = resolvedBody != null ? await resolveFileUrls(resolvedBody) : resolvedBody;
+    const body = buildRequestBody(bodyWithFiles, step.body_type, headers);
+    const response = await requestWithRetry({
+      method: step.method,
+      url,
+      headers,
+      data: body,
+      validateStatus: () => true,
+      timeout: 15000,
+    }, step.name);
+    const responseTimeMs = Date.now() - start;
+
+    const newSchema = generateSchema(response.data);
+    const previousSchema = step.endpoint_id ? previousSchemas[step.endpoint_id] : null;
+    const schemaDiffs = previousSchema ? diffSchema(previousSchema, newSchema) : [];
+
+    let assertionResults = null;
+    if (step.assertions && step.assertions.length > 0) {
+      assertionResults = checkAssertions(step.assertions, response, responseTimeMs);
+    }
+    // A response shape change (schemaDiffs) no longer downgrades an
+    // otherwise-passing run — it's still recorded below for reference,
+    // but doesn't affect status, Dashboard badges, or Telegram alerts.
+    const status = assertionResults
+      ? (assertionResults.every((a) => a.passed) ? 'PASS' : 'FAIL')
+      : (response.status < 400 ? 'PASS' : 'FAIL');
+
+    for (const rule of step.extract || []) {
+      const value = getField(response.data, rule.path);
+      if (value !== undefined) extractedVariables[rule.variable] = value;
+    }
+
+    stepResult = {
+      step_order: step.step_order,
+      name: step.name,
+      endpoint_id: step.endpoint_id || null,
+      status,
+      request_method: step.method,
+      request_url: url,
+      request_body: resolvedBody ?? null,
+      request_headers: headers,
+      request_id: variables.request_id,
+      response_status_code: response.status,
+      response_time_ms: responseTimeMs,
+      response_body: response.data,
+      error_message: status === 'FAIL'
+        ? JSON.stringify(assertionResults ? assertionResults.filter((a) => !a.passed) : [{ type: 'http_status', expected: '< 400', actual: response.status }])
+        : null,
+      assertion_results: assertionResults,
+      extracted_variables: extractedVariables,
+      schema: newSchema,
+      schema_diffs: schemaDiffs,
+    };
+  } catch (err) {
+    stepResult = {
+      step_order: step.step_order,
+      name: step.name,
+      endpoint_id: step.endpoint_id || null,
+      status: 'ERROR',
+      request_method: step.method,
+      request_url: url,
+      request_body: resolvedBody ?? null,
+      request_headers: headers,
+      request_id: variables.request_id,
+      response_status_code: null,
+      response_time_ms: Date.now() - start,
+      response_body: null,
+      error_message: describeConnectionError(err),
+      assertion_results: null,
+      extracted_variables: {},
+      schema: null,
+      schema_diffs: [],
+    };
+  }
+
+  return { stepResult, extractedVariables };
+}
+
+// Groups consecutive steps into batches — a step marked parallel_with_previous
+// joins the batch its predecessor is in instead of starting a new one, so
+// e.g. steps 5-6-7 all flagged this way become a single 3-way-concurrent
+// batch, not three separate pairs. A step without the flag always starts a
+// fresh (initially size-1) batch.
+function groupIntoBatches(steps) {
+  const batches = [];
+  for (const step of steps) {
+    if (step.parallel_with_previous && batches.length > 0) {
+      batches[batches.length - 1].push(step);
+    } else {
+      batches.push([step]);
+    }
+  }
+  return batches;
+}
+
 /**
  * Run a flow's steps in order against an environment. Variables extracted
  * from one step's response (via step.extract) are available as {{variable}}
@@ -310,160 +465,48 @@ function checkAssertions(assertions, response, responseTimeMs) {
  * to an endpoint, is checked for schema drift against that endpoint's last
  * known response shape.
  *
+ * A step flagged `parallel_with_previous` runs concurrently with the step(s)
+ * immediately before it (see groupIntoBatches) rather than waiting for them
+ * to finish — steps in the same batch can't see each other's extracted
+ * variables (none of them exist yet when the batch starts), and if two of
+ * them extract the same variable name, whichever is later in step_order
+ * wins deterministically, not whichever happened to respond first.
+ *
  * `initialVariables` seeds the variable scope before step 1 — used to chain
  * a value extracted by a PREVIOUS flow into this one when several flows are
  * run together as a batch (see routes/flows.js's /batch-run). The final
  * variables object is returned so the batch runner can pass it on again.
  */
-async function executeFlow(flow, steps, environment, previousSchemas = {}, authCredentials = {}, initialVariables = {}, runToken = null) {
-  const variables = { base_url: environment.base_url, ...(environment.variables || {}), ...initialVariables };
+// progressToken defaults to runToken (a plain manual/scheduled run tracks
+// progress under the same token it's cancelled by) but a Batch Run passes
+// them separately: runToken stays null per flow (batch runs aren't
+// individually cancellable, unchanged from before), while progressToken is
+// the one shared token the whole batch's steps are tracked under.
+async function executeFlow(flow, steps, environment, previousSchemas = {}, authCredentials = {}, initialVariables = {}, runToken = null, progressToken = runToken) {
+  let variables = { base_url: environment.base_url, ...(environment.variables || {}), ...initialVariables };
   const stepResults = [];
   let overallStatus = 'PASS';
 
-  for (const step of steps) {
-    // Checked between steps (not mid-request — an in-flight HTTP call still
-    // runs to completion) so cancelling a run stops it at the next natural
-    // boundary instead of leaving it in a half-applied state.
+  for (const batch of groupIntoBatches(steps)) {
+    // Checked between batches (not mid-request — an in-flight HTTP call
+    // still runs to completion) so cancelling a run stops it at the next
+    // natural boundary instead of leaving it in a half-applied state.
     if (isCancelled(runToken)) {
       overallStatus = 'CANCELLED';
       break;
     }
-    // Waited before this step runs at all — e.g. giving an async backend
-    // process (document indexing, a webhook) time to finish before the next
-    // check, without hardcoding a delay into every step's own request.
-    if (step.delay_ms > 0) await sleep(step.delay_ms);
 
-    // Fresh per request (not per flow run) — lets a {{request_id}} header
-    // uniquely trace each individual call, even across steps in the same run.
-    variables.request_id = crypto.randomUUID();
-    // {{random}} — a short random string for body/URL fields that need a
-    // unique value on every run (e.g. a document title) without wiring up an
-    // Extract Variable rule just for that.
-    variables.random = crypto.randomBytes(4).toString('hex');
+    const results = await Promise.all(batch.map((step) => runStep(step, variables, flow, authCredentials, previousSchemas)));
 
-    const url = resolveDeep(step.url_template, variables);
-    const headers = resolveDeep(activeHeaders(step.headers), variables);
-    // A step with its own Authorization credential always uses that. A step
-    // with NONE set falls back to the flow's "Refresh auth via" credential
-    // instead of going out with no Authorization header at all — unless it
-    // opted out (skip_web_login_refresh), or it already carries a raw header
-    // in some OTHER scheme (Basic, a custom internal format, ...), which
-    // means it intentionally authenticates against a different service than
-    // whatever this flow-level credential is meant to cover.
-    const existingAuthKey = Object.keys(headers).find((k) => k.toLowerCase() === 'authorization');
-    const existingAuthValue = existingAuthKey ? String(headers[existingAuthKey] ?? '').trim() : '';
-    const hasConflictingAuthScheme = existingAuthValue !== '' && !/^bearer\s/i.test(existingAuthValue);
-    const effectiveCredId = step.auth_credential_id
-      || (!step.skip_web_login_refresh && !hasConflictingAuthScheme ? flow.web_login_credential_id : null);
-    if (effectiveCredId && authCredentials[effectiveCredId]) {
-      const cred = authCredentials[effectiveCredId];
-      if (cred.type === 'web_login') {
-        headers['Authorization'] = `Bearer ${cred.token}`;
-      } else {
-        const basic = Buffer.from(`${cred.username}:${cred.password}`).toString('base64');
-        headers['Authorization'] = `Basic ${basic}`;
-      }
+    let batchFailed = false;
+    for (const { stepResult, extractedVariables } of results) {
+      stepResults.push(stepResult);
+      pushProgress(progressToken, stepResult);
+      variables = { ...variables, ...extractedVariables };
+      if (SEVERITY[stepResult.status] > SEVERITY[overallStatus]) overallStatus = stepResult.status;
+      if (['FAIL', 'ERROR'].includes(stepResult.status)) batchFailed = true;
     }
-    // A manually-typed or {{variable}}-templated Authorization value (e.g. a
-    // raw token extracted from a login step's response) commonly forgets the
-    // "Bearer " scheme prefix, which silently turns into a 401 — add it back
-    // when it's missing, unless some other scheme (Basic, Digest, ...) is
-    // already present.
-    const authKey = Object.keys(headers).find((k) => k.toLowerCase() === 'authorization');
-    if (authKey && typeof headers[authKey] === 'string' && headers[authKey].trim() && !/^[a-z]+\s/i.test(headers[authKey].trim())) {
-      headers[authKey] = `Bearer ${headers[authKey].trim()}`;
-    }
-    const resolvedBody = step.body_template != null ? resolveDeep(step.body_template, variables) : undefined;
-
-    const start = Date.now();
-    let stepResult;
-
-    try {
-      // Fetching a __file_url__ field can fail (bad URL, timeout, 404) —
-      // done inside the try so that surfaces as this step's own ERROR result
-      // instead of crashing the whole flow run.
-      const bodyWithFiles = resolvedBody != null ? await resolveFileUrls(resolvedBody) : resolvedBody;
-      const body = buildRequestBody(bodyWithFiles, step.body_type, headers);
-      const response = await requestWithRetry({
-        method: step.method,
-        url,
-        headers,
-        data: body,
-        validateStatus: () => true,
-        timeout: 15000,
-      }, step.name);
-      const responseTimeMs = Date.now() - start;
-
-      const newSchema = generateSchema(response.data);
-      const previousSchema = step.endpoint_id ? previousSchemas[step.endpoint_id] : null;
-      const schemaDiffs = previousSchema ? diffSchema(previousSchema, newSchema) : [];
-
-      let assertionResults = null;
-      if (step.assertions && step.assertions.length > 0) {
-        assertionResults = checkAssertions(step.assertions, response, responseTimeMs);
-      }
-      // A response shape change (schemaDiffs) no longer downgrades an
-      // otherwise-passing run — it's still recorded below for reference,
-      // but doesn't affect status, Dashboard badges, or Telegram alerts.
-      const status = assertionResults
-        ? (assertionResults.every((a) => a.passed) ? 'PASS' : 'FAIL')
-        : (response.status < 400 ? 'PASS' : 'FAIL');
-
-      const extractedVariables = {};
-      for (const rule of step.extract || []) {
-        const value = getField(response.data, rule.path);
-        if (value !== undefined) {
-          variables[rule.variable] = value;
-          extractedVariables[rule.variable] = value;
-        }
-      }
-
-      stepResult = {
-        step_order: step.step_order,
-        name: step.name,
-        endpoint_id: step.endpoint_id || null,
-        status,
-        request_method: step.method,
-        request_url: url,
-        request_body: resolvedBody ?? null,
-        request_headers: headers,
-        request_id: variables.request_id,
-        response_status_code: response.status,
-        response_time_ms: responseTimeMs,
-        response_body: response.data,
-        error_message: status === 'FAIL'
-          ? JSON.stringify(assertionResults ? assertionResults.filter((a) => !a.passed) : [{ type: 'http_status', expected: '< 400', actual: response.status }])
-          : null,
-        assertion_results: assertionResults,
-        extracted_variables: extractedVariables,
-        schema: newSchema,
-        schema_diffs: schemaDiffs,
-      };
-    } catch (err) {
-      stepResult = {
-        step_order: step.step_order,
-        name: step.name,
-        endpoint_id: step.endpoint_id || null,
-        status: 'ERROR',
-        request_method: step.method,
-        request_url: url,
-        request_body: resolvedBody ?? null,
-        request_headers: headers,
-        request_id: variables.request_id,
-        response_status_code: null,
-        response_time_ms: Date.now() - start,
-        response_body: null,
-        error_message: describeConnectionError(err),
-        assertion_results: null,
-        extracted_variables: {},
-        schema: null,
-        schema_diffs: [],
-      };
-    }
-
-    stepResults.push(stepResult);
-    if (SEVERITY[stepResult.status] > SEVERITY[overallStatus]) overallStatus = stepResult.status;
-    if (['FAIL', 'ERROR'].includes(stepResult.status) && flow.stop_on_failure !== false) break;
+    if (batchFailed && flow.stop_on_failure !== false) break;
   }
 
   return { status: overallStatus, steps: stepResults, variables };

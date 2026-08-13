@@ -4,6 +4,7 @@ const { notifyFlowIfNeeded } = require('./telegramNotifier');
 const { decrypt } = require('../utils/crypto');
 const { getWebLoginToken } = require('./webLogin');
 const { clearToken } = require('./runCancellation');
+const { startFlowSegment } = require('./runProgress');
 
 // File fields carry a base64 blob (see FormDataEditor) — persisting that raw
 // on every historical run would bloat the DB fast, especially for flows on a
@@ -28,7 +29,7 @@ function sanitizeBodyForStorage(body) {
  * overall result warrants it. Shared by the manual run route and the cron
  * scheduler so both go through the exact same path.
  */
-async function runFlowAndPersist(flow, steps, environment, triggeredBy, scheduleId = null, initialVariables = {}, runToken = null) {
+async function runFlowAndPersist(flow, steps, environment, triggeredBy, scheduleId = null, initialVariables = {}, runToken = null, progressToken = runToken) {
   const previousSchemas = {};
   for (const step of steps) {
     if (step.endpoint_id) {
@@ -41,16 +42,11 @@ async function runFlowAndPersist(flow, steps, environment, triggeredBy, schedule
   }
 
   // One shared map of credential id -> resolved credential (with a fresh
-  // Web Login token, or a decrypted Basic password) — covers both a step's
-  // own `auth_credential_id` AND the flow-level "Refresh auth via" one, so
-  // a step that hasn't picked its own Authorization still resolves to that
-  // flow-level account instead of going out with none at all. Fetched once
-  // per unique credential per run, not once per step.
+  // Web Login token, or a decrypted Basic password) — covers every step's
+  // own `auth_credential_id`. Fetched once per unique credential per run,
+  // not once per step.
   const authCredentials = {};
-  const authIds = [...new Set([
-    ...steps.filter((s) => s.auth_credential_id).map((s) => s.auth_credential_id),
-    ...(flow.web_login_credential_id ? [flow.web_login_credential_id] : []),
-  ])];
+  const authIds = [...new Set(steps.filter((s) => s.auth_credential_id).map((s) => s.auth_credential_id))];
   if (authIds.length) {
     const credResult = await pool.query('SELECT * FROM auth_credentials WHERE id = ANY($1)', [authIds]);
     for (const row of credResult.rows) {
@@ -73,13 +69,20 @@ async function runFlowAndPersist(flow, steps, environment, triggeredBy, schedule
     }
   }
 
+  // Lifecycle (initProgress/clearProgress) is owned by the caller — a single
+  // manual run wraps one runFlowAndPersist call, a Batch Run wraps several
+  // under the same token, and only the caller knows when the whole thing
+  // (not just this one flow) is actually done. This call just registers
+  // this flow's own segment so its steps land in the right bucket.
+  startFlowSegment(progressToken, flow.id, flow.name);
   let execution;
   try {
-    execution = await executeFlow(flow, steps, environment, previousSchemas, authCredentials, initialVariables, runToken);
+    execution = await executeFlow(flow, steps, environment, previousSchemas, authCredentials, initialVariables, runToken, progressToken);
   } finally {
     // Done either way — a stale token left in the set would just sit there
     // uselessly (it can never be reused once this run's execution has
     // ended), so it's cleared regardless of whether it was ever cancelled.
+    // Cancellation is still per-run (not per-batch), so this stays here.
     clearToken(runToken);
   }
 
