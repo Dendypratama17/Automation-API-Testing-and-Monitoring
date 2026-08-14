@@ -346,7 +346,7 @@ export default function Schedules() {
           >
             <option value="">Select Environment</option>
             {environments.map((env) => (
-              <option key={env.id} value={env.id}>{env.name}{env.is_protected ? ' (protected)' : ''}</option>
+              <option key={env.id} value={env.id}>{env.name}{env.is_protected ? ' 🔐' : ''}</option>
             ))}
           </select>
           <button className="btn-primary" onClick={handleCreate} style={{ flexShrink: 0 }}>

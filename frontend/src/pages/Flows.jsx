@@ -1191,7 +1191,7 @@ export default function Flows() {
                       >
                         <option value="">Select env...</option>
                         {environments.map((env) => (
-                          <option key={env.id} value={env.id}>{env.name}{env.is_protected ? ' (protected)' : ''}</option>
+                          <option key={env.id} value={env.id}>{env.name}{env.is_protected ? ' 🔐' : ''}</option>
                         ))}
                       </select>
                     </td>
@@ -1389,10 +1389,21 @@ export default function Flows() {
                   onChange={(e) => {
                     const credId = e.target.value;
                     if (credId) {
+                      const emptyCount = editingFlow.steps.filter((s) => !s.authCredentialId).length;
                       const steps = editingFlow.steps.map((step) => (
                         !step.authCredentialId ? { ...step, authCredentialId: credId } : step
                       ));
                       setEditingFlow({ ...editingFlow, steps });
+                      // The select itself resets to the placeholder right after
+                      // this (below) since it's a one-time fill action, not a
+                      // persisted flow-level setting — without this toast that
+                      // reset alone looks like the pick silently did nothing.
+                      const credName = authCredentials.find((c) => String(c.id) === credId)?.name || 'credential';
+                      showToast(
+                        emptyCount > 0
+                          ? `Filled Authorization for ${emptyCount} step${emptyCount === 1 ? '' : 's'} with "${credName}".`
+                          : 'Every step already has its own Authorization set — nothing to fill.'
+                      );
                     }
                     setBulkAuthCredentialId('');
                   }}
