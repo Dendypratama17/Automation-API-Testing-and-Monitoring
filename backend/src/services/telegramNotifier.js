@@ -3,6 +3,13 @@ const pool = require('../db/pool');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+// Separate bot for the "Share to Telegram" document feature — kept apart from
+// the bot above (which only ever sends automatic flow-run alert messages).
+const DOC_BOT_TOKEN = process.env.TELEGRAM_DOC_BOT_TOKEN || BOT_TOKEN;
+const DOC_CHAT_ID = process.env.TELEGRAM_DOC_CHAT_ID || CHAT_ID;
+// Optional — the group is a forum-style supergroup with Topics; when set,
+// routes the document into that specific topic instead of the general one.
+const DOC_THREAD_ID = process.env.TELEGRAM_DOC_THREAD_ID || null;
 const APP_BASE_URL = process.env.APP_BASE_URL; // optional, e.g. http://localhost:5180 — enables a "View in Dashboard" link
 
 /**
@@ -22,6 +29,29 @@ async function sendTelegramMessage(text) {
     parse_mode: 'HTML',
     disable_web_page_preview: true,
   });
+  return response.data;
+}
+
+/**
+ * Share an arbitrary file (e.g. a JSON Diff PDF export) to the same
+ * configured chat, via Telegram's sendDocument — a manual, user-triggered
+ * action (an explicit "Share to Telegram" click), unlike sendTelegramMessage
+ * above which is only ever called automatically from a flow run result.
+ * Native FormData/Blob (Node 20+) — no extra multipart-body dependency.
+ */
+async function sendTelegramDocument(buffer, filename, caption = '') {
+  if (!DOC_BOT_TOKEN || !DOC_CHAT_ID) {
+    throw new Error('TELEGRAM_DOC_BOT_TOKEN / TELEGRAM_DOC_CHAT_ID not configured on the server.');
+  }
+
+  const url = `https://api.telegram.org/bot${DOC_BOT_TOKEN}/sendDocument`;
+  const form = new FormData();
+  form.append('chat_id', DOC_CHAT_ID);
+  if (DOC_THREAD_ID) form.append('message_thread_id', DOC_THREAD_ID);
+  if (caption) form.append('caption', caption.slice(0, 1024)); // Telegram's own caption limit
+  form.append('document', new Blob([buffer], { type: 'application/pdf' }), filename);
+
+  const response = await axios.post(url, form);
   return response.data;
 }
 
@@ -247,4 +277,4 @@ async function notifyFlowIfNeeded(flowRun, previousStatus = null) {
   );
 }
 
-module.exports = { sendTelegramMessage, notifyFlowIfNeeded, formatFlowAlertMessage };
+module.exports = { sendTelegramMessage, sendTelegramDocument, notifyFlowIfNeeded, formatFlowAlertMessage };

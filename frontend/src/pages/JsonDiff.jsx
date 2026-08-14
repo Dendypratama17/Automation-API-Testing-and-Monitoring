@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { computeJsonDiff, saveJsonDiff, getSavedJsonDiffs, getSavedJsonDiff, deleteSavedJsonDiff, renameSavedJsonDiff } from '../api/client';
+import { computeJsonDiff, saveJsonDiff, getSavedJsonDiffs, getSavedJsonDiff, deleteSavedJsonDiff, renameSavedJsonDiff, sendDocumentToTelegram } from '../api/client';
 import JsonDiffView from '../components/JsonDiffView.jsx';
 import JsonPasteEditor from '../components/JsonPasteEditor.jsx';
 import { computeLineDiff } from '../utils/jsonTextHighlight.js';
-import { TrashIcon, EditIcon, DownloadIcon } from '../components/icons.jsx';
+import { TrashIcon, EditIcon, DownloadIcon, SendIcon } from '../components/icons.jsx';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
 import { readJsonDiffDraft, writeJsonDiffDraft } from '../utils/jsonDiffDraft.js';
-import { exportJsonDiffPdf } from '../utils/exportJsonDiffPdf.js';
+import { exportJsonDiffPdf, getJsonDiffPdfBase64 } from '../utils/exportJsonDiffPdf.js';
 
 function formatDateTime(dateStr) {
   const d = new Date(dateStr);
@@ -37,6 +37,7 @@ export default function JsonDiff() {
   const [renaming, setRenaming] = useState(false);
   const [locked, setLocked] = useState(draft.locked || false);
   const [exportingId, setExportingId] = useState(null);
+  const [sharingId, setSharingId] = useState(null);
 
   const loadSavedList = () => getSavedJsonDiffs().then(setSavedList);
   useEffect(() => { loadSavedList(); }, []);
@@ -155,6 +156,24 @@ export default function JsonDiff() {
       showToast(err.response?.data?.error || err.message, 'error');
     } finally {
       setExportingId(null);
+    }
+  };
+
+  const handleShareToTelegram = async (id, name) => {
+    setSharingId(id);
+    try {
+      const full = await getSavedJsonDiff(id);
+      const { base64, filename } = getJsonDiffPdfBase64(full);
+      await sendDocumentToTelegram({
+        filename,
+        caption: `JSON Diff: ${name || `Comparison #${id}`}`,
+        fileBase64: base64,
+      });
+      showToast('Sent to Telegram.');
+    } catch (err) {
+      showToast(err.response?.data?.error || err.message, 'error');
+    } finally {
+      setSharingId(null);
     }
   };
 
@@ -327,6 +346,14 @@ export default function JsonDiff() {
                     title="Export PDF"
                   >
                     <DownloadIcon />
+                  </button>
+                  <button
+                    className="btn-quiet"
+                    onClick={(e) => { e.stopPropagation(); handleShareToTelegram(s.id, s.name); }}
+                    disabled={sharingId === s.id}
+                    title="Share to Telegram"
+                  >
+                    <SendIcon />
                   </button>
                   <button
                     className="btn-quiet"

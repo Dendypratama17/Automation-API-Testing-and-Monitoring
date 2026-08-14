@@ -24,6 +24,7 @@ export const getSavedJsonDiffs = () => api.get('/json-diff').then((r) => r.data)
 export const getSavedJsonDiff = (id) => api.get(`/json-diff/${id}`).then((r) => r.data);
 export const deleteSavedJsonDiff = (id) => api.delete(`/json-diff/${id}`).then((r) => r.data);
 export const renameSavedJsonDiff = (id, name) => api.put(`/json-diff/${id}/rename`, { name }).then((r) => r.data);
+export const sendDocumentToTelegram = (data) => api.post('/telegram/send-document', data).then((r) => r.data);
 
 export const getFolders = (kind) => api.get('/folders', { params: { kind } }).then((r) => r.data);
 export const createFolder = (data) => api.post('/folders', data).then((r) => r.data);

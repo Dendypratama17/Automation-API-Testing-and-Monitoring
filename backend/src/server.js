@@ -14,6 +14,7 @@ const defaultHeadersRouter = require('./routes/defaultHeaders');
 const testFilesRouter = require('./routes/testFiles');
 const settingsRouter = require('./routes/settings');
 const jsonDiffRouter = require('./routes/jsonDiff');
+const telegramRouter = require('./routes/telegram');
 const { initScheduler } = require('./services/scheduler');
 
 const app = express();
@@ -34,6 +35,7 @@ app.use('/api/default-headers', defaultHeadersRouter);
 app.use('/api/test-files', testFilesRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/json-diff', jsonDiffRouter);
+app.use('/api/telegram', telegramRouter);
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 

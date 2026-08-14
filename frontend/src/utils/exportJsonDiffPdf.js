@@ -16,13 +16,27 @@ function formatValue(value) {
   return JSON.stringify(value);
 }
 
+// Filesystem-safe stand-in for the comparison's name (if it has one) — so a
+// downloaded file reads as e.g. "json-diff-Billings-detail-18.pdf" instead of
+// just the id, without risking path-breaking characters from a freeform name.
+function slugifyForFilename(name) {
+  return name
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
 /**
  * Renders a saved JSON Diff comparison (name, saved date, ignored fields,
  * and the flat list of {path, old_value, new_value} diffs) into a styled,
- * multi-page PDF and triggers a browser download — same jsPDF-from-
- * structured-data approach as exportRunResultToPdf.js, not a DOM screenshot.
+ * multi-page PDF — same jsPDF-from-structured-data approach as
+ * exportRunResultToPdf.js, not a DOM screenshot. Returns the built jsPDF
+ * instance plus a filesystem-safe filename, shared by both the "download"
+ * and "share to Telegram" entry points below so the PDF-building logic
+ * itself only lives in one place.
  */
-export function exportJsonDiffPdf(saved) {
+function buildJsonDiffPdf(saved) {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -197,5 +211,21 @@ export function exportJsonDiffPdf(saved) {
     doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - footerZone + 12, { align: 'right' });
   }
 
-  doc.save(`json-diff-${saved.id}.pdf`);
+  const nameSlug = saved.name ? slugifyForFilename(saved.name) : '';
+  const filename = nameSlug ? `json-diff-${nameSlug}-${saved.id}.pdf` : `json-diff-${saved.id}.pdf`;
+  return { doc, filename };
+}
+
+export function exportJsonDiffPdf(saved) {
+  const { doc, filename } = buildJsonDiffPdf(saved);
+  doc.save(filename);
+}
+
+// Base64 payload (no data-URI prefix) + filename, for POSTing to a backend
+// endpoint (e.g. "Share to Telegram") instead of triggering a local download.
+export function getJsonDiffPdfBase64(saved) {
+  const { doc, filename } = buildJsonDiffPdf(saved);
+  const dataUri = doc.output('datauristring');
+  const base64 = dataUri.slice(dataUri.indexOf(',') + 1);
+  return { base64, filename };
 }
