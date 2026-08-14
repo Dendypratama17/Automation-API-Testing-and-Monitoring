@@ -49,6 +49,11 @@ function parseCurl(curlString) {
       if (!method) method = 'POST';
     } else if (t === '-u' || t === '--user') {
       i++; // skip basic auth value, not handled yet
+    } else if (t === '-b' || t === '--cookie') {
+      // Without this, the cookie string (unclaimed by any recognized flag)
+      // would fall through to the bare-token branch below and get
+      // misinterpreted as the URL, corrupting path_template.
+      headers['Cookie'] = tokens[++i];
     } else if (!t.startsWith('-') && t !== 'curl') {
       // Every recognized flag above consumes its own value via tokens[++i],
       // and an unrecognized flag (e.g. --location) is simply skipped without

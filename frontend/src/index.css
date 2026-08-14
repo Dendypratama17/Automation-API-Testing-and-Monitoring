@@ -409,12 +409,17 @@ input.cred-select-combo-input {
 }
 .cred-select-combo-toggle:hover { color: var(--text); background: var(--surface-3); }
 
-/* Name/env is the identifying part — it keeps its natural width instead of
-   sharing flex:1 with the value pill, which would truncate it down to a
-   sliver whenever the raw value is a long hash. The value pill takes
-   whatever's left and truncates first. */
-.header-value-item-name { flex-shrink: 0; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.header-value-item-value { flex: 1; min-width: 0; max-width: none; overflow: hidden; text-overflow: ellipsis; }
+/* Name is the identifying part — it keeps its natural width (up to a cap)
+   instead of sharing flex:1 with the value pill, which would truncate it
+   down to a sliver whenever the raw value is a long hash. The env badge is
+   its own small fixed-width pill, color-coded per environment (see
+   utils/envBadge.js) so it reads at a glance. The value pill is a fixed
+   width too (not flex:1) so every row's badge is the same size regardless
+   of how long its underlying hash is — one long value shouldn't stretch
+   the whole column and waste space on every other row. */
+.header-value-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.header-value-item-env { flex-shrink: 0; }
+.header-value-item-value { flex-shrink: 0; width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* A chip's own Options (⋮) trigger only appears on hover/focus — keeps a row
    of many small chips (e.g. Default Headers values) from looking cluttered

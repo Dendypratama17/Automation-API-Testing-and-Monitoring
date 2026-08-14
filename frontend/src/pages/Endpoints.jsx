@@ -12,6 +12,7 @@ import TestFiles from './TestFiles.jsx';
 import Notifications from './Notifications.jsx';
 import FolderTree from '../components/FolderTree.jsx';
 import JsonBlock from '../components/JsonBlock.jsx';
+import JsonPasteEditor from '../components/JsonPasteEditor.jsx';
 
 // Same idea as the Dashboard's Resource column: show just the path, not the
 // {{base_url}} placeholder, so it stays compact and reads the same way.
@@ -22,6 +23,7 @@ import { TrashIcon, EditIcon, GripIcon, FolderIcon, CopyIcon } from '../componen
 import OptionsMenu from '../components/OptionsMenu.jsx';
 import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
+import { loadSelectedFolder, saveSelectedFolder, hasStoredFolder } from '../utils/persistedFolder.js';
 
 function endpointToForm(ep) {
   return {
@@ -42,7 +44,7 @@ export default function Endpoints() {
   const confirm = useConfirm();
   const [tab, setTab] = useState('endpoints'); // 'endpoints' | 'environments' | 'authorization' | 'default-headers' | 'test-files' | 'notifications'
   const [folders, setFolders] = useState([]);
-  const [selectedFolderId, setSelectedFolderId] = useState('all'); // 'all' | 'null' | number
+  const [selectedFolderId, setSelectedFolderId] = useState(() => loadSelectedFolder('qa-tool:config-selected-folder')); // 'all' | 'null' | number
   const [endpoints, setEndpoints] = useState([]);
   const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null);
@@ -72,16 +74,19 @@ export default function Endpoints() {
   }, []);
 
   // Default to the oldest top-level folder (the very first one ever
-  // created) instead of "All Endpoints" — only once, right after folders
-  // first load, so it never overrides a folder the user picked afterward.
+  // created) instead of "All Endpoints" — only for a first-ever visit (no
+  // folder choice persisted yet), so it never overrides a previously
+  // restored or user-picked folder on later mounts (e.g. after switching menus).
   const didAutoSelectFolder = useRef(false);
   useEffect(() => {
     if (didAutoSelectFolder.current || folders.length === 0) return;
     didAutoSelectFolder.current = true;
+    if (hasStoredFolder('qa-tool:config-selected-folder')) return;
     const rootFolders = folders.filter((f) => (f.parent_id ?? null) === null);
     if (rootFolders.length === 0) return;
     const oldest = rootFolders.reduce((a, b) => (a.id < b.id ? a : b));
     setSelectedFolderId(oldest.id);
+    saveSelectedFolder('qa-tool:config-selected-folder', oldest.id);
   }, [folders]);
 
   useEffect(() => {
@@ -105,7 +110,10 @@ export default function Endpoints() {
     if (await confirm('Delete this folder? Any subfolders inside it are deleted too, and endpoints inside become uncategorized.')) {
       await deleteFolder(id);
       loadFolders();
-      if (selectedFolderId === id) setSelectedFolderId('all');
+      if (selectedFolderId === id) {
+        setSelectedFolderId('all');
+        saveSelectedFolder('qa-tool:config-selected-folder', 'all');
+      }
     }
   };
 
@@ -239,7 +247,7 @@ export default function Endpoints() {
           <FolderTree
             folders={folders}
             selectedFolderId={selectedFolderId}
-            onSelect={(folderId) => { setSelectedFolderId(folderId); setViewing(null); }}
+            onSelect={(folderId) => { setSelectedFolderId(folderId); saveSelectedFolder('qa-tool:config-selected-folder', folderId); setViewing(null); }}
             onCreateFolder={handleCreateFolder}
             onDeleteFolder={handleDeleteFolder}
             onRenameFolder={handleRenameFolder}
@@ -400,12 +408,10 @@ export default function Endpoints() {
                   onChange={(rows) => setEditing({ ...editing, bodyRows: rows })}
                 />
               ) : (
-                <textarea
+                <JsonPasteEditor
                   value={editing.bodyText}
-                  onChange={(e) => setEditing({ ...editing, bodyText: e.target.value })}
-                  rows={16}
-                  className="mono"
-                  style={{ width: '100%' }}
+                  onChange={(text) => setEditing({ ...editing, bodyText: text })}
+                  height={360}
                 />
               )}
 

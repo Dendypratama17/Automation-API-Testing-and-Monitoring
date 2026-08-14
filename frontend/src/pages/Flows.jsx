@@ -22,6 +22,7 @@ import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
 import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
 import { exportRunResultToPdf } from '../utils/exportRunResultPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
+import { loadSelectedFolder, saveSelectedFolder, hasStoredFolder } from '../utils/persistedFolder.js';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const BODY_METHODS = ['POST', 'PUT'];
@@ -349,7 +350,7 @@ export default function Flows() {
   const confirm = useConfirm();
   const showToast = useToast();
   const [folders, setFolders] = useState([]);
-  const [selectedFolderId, setSelectedFolderId] = useState('all'); // 'all' | 'null' | number
+  const [selectedFolderId, setSelectedFolderId] = useState(() => loadSelectedFolder('qa-tool:flows-selected-folder')); // 'all' | 'null' | number
   const [flows, setFlows] = useState([]);
   const [endpoints, setEndpoints] = useState([]);
   const [endpointFolders, setEndpointFolders] = useState([]);
@@ -421,16 +422,19 @@ export default function Flows() {
   };
 
   // Default to the oldest top-level folder (the very first one ever
-  // created) instead of "All Flows" — only once, right after folders first
-  // load, so it never overrides a folder the user picked afterward.
+  // created) instead of "All Flows" — only for a first-ever visit (no folder
+  // choice persisted yet), so it never overrides a previously restored or
+  // user-picked folder on later mounts (e.g. after switching menus).
   const didAutoSelectFolder = useRef(false);
   useEffect(() => {
     if (didAutoSelectFolder.current || folders.length === 0) return;
     didAutoSelectFolder.current = true;
+    if (hasStoredFolder('qa-tool:flows-selected-folder')) return;
     const rootFolders = folders.filter((f) => (f.parent_id ?? null) === null);
     if (rootFolders.length === 0) return;
     const oldest = rootFolders.reduce((a, b) => (a.id < b.id ? a : b));
     setSelectedFolderId(oldest.id);
+    saveSelectedFolder('qa-tool:flows-selected-folder', oldest.id);
   }, [folders]);
 
   useEffect(() => {
@@ -471,7 +475,10 @@ export default function Flows() {
     if (await confirm('Delete this folder? Any subfolders inside it are deleted too, and flows inside become uncategorized.')) {
       await deleteFolder(id);
       loadFolders();
-      if (selectedFolderId === id) setSelectedFolderId('all');
+      if (selectedFolderId === id) {
+        setSelectedFolderId('all');
+        saveSelectedFolder('qa-tool:flows-selected-folder', 'all');
+      }
     }
   };
 
@@ -1105,7 +1112,7 @@ export default function Flows() {
           <FolderTree
             folders={folders}
             selectedFolderId={selectedFolderId}
-            onSelect={(folderId) => { setSelectedFolderId(folderId); setViewingFlow(null); }}
+            onSelect={(folderId) => { setSelectedFolderId(folderId); saveSelectedFolder('qa-tool:flows-selected-folder', folderId); setViewingFlow(null); }}
             onCreateFolder={handleCreateFolder}
             onDeleteFolder={handleDeleteFolder}
             onRenameFolder={handleRenameFolder}
