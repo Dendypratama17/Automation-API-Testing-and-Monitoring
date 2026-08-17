@@ -4,6 +4,7 @@ import { TrashIcon, EditIcon, GripIcon } from '../components/icons.jsx';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
 import OptionsMenu from '../components/OptionsMenu.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
+import { groupByEnv } from '../utils/envBadge.js';
 
 const emptyForm = { name: '', type: 'basic', username: '', password: '', login_url: '', environment_id: '' };
 
@@ -154,7 +155,7 @@ export default function Authorization() {
           <button
             className="btn-primary"
             onClick={handleSubmit}
-            disabled={!form.name || !form.username || (!editingId && !form.password) || (form.type === 'web_login' && !form.login_url)}
+            disabled={!form.name || !form.username || (!editingId && !form.password) || (form.type === 'web_login' && !form.login_url) || !form.environment_id}
           >
             {editingId ? 'Save' : 'Add'}
           </button>
@@ -171,50 +172,55 @@ export default function Authorization() {
               <th style={{ width: 120 }}>Type</th>
               <th>Username</th>
               <th>Password</th>
-              <th style={{ width: 100 }}>Env</th>
               <th style={{ width: 170 }}>Action</th>
             </tr>
           </thead>
           <tbody>
-            {credentials.map((cred) => (
-              <tr
-                key={cred.id}
-                draggable
-                onDragStart={() => setDraggedId(cred.id)}
-                onDragOver={(e) => { e.preventDefault(); if (dragOverId !== cred.id) setDragOverId(cred.id); }}
-                onDragLeave={() => setDragOverId((id) => (id === cred.id ? null : id))}
-                onDrop={() => handleDrop(cred.id)}
-                onDragEnd={() => { setDraggedId(null); setDragOverId(null); }}
-                style={{
-                  background: editingId === cred.id ? 'var(--surface-2)' : undefined,
-                  opacity: draggedId === cred.id ? 0.4 : 1,
-                  borderTop: dragOverId === cred.id && draggedId !== cred.id ? '2px solid var(--accent)' : undefined,
-                }}
-              >
-                <td className="hint" style={{ cursor: 'grab' }} title="Drag to reorder">
-                  <GripIcon />
-                </td>
-                <td>{cred.name}</td>
-                <td>
-                  <span className="badge neutral">{cred.type === 'web_login' ? 'Web Login' : 'Basic Auth'}</span>
-                </td>
-                <td className="mono">{cred.username}</td>
-                <td className="mono">••••••••</td>
-                <td>{cred.environment_name ? <span className="badge neutral">{cred.environment_name}</span> : <span className="hint">—</span>}</td>
-                <td className="row-actions">
-                  <OptionsMenu
-                    items={[
-                      ...(cred.type === 'web_login'
-                        ? [{ label: testingId === cred.id ? 'Testing...' : 'Test Login', onClick: () => handleTestLogin(cred), disabled: testingId === cred.id }]
-                        : []),
-                      { label: 'Edit', icon: <EditIcon />, onClick: () => startEdit(cred) },
-                      { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(cred), danger: true },
-                    ]}
-                  />
-                </td>
-              </tr>
+            {groupByEnv(credentials, (c) => c.environment_name).map((group) => (
+              <React.Fragment key={group.key}>
+                <tr>
+                  <td colSpan={6} className="table-group-header">{group.key}</td>
+                </tr>
+                {group.items.map((cred) => (
+                  <tr
+                    key={cred.id}
+                    draggable
+                    onDragStart={() => setDraggedId(cred.id)}
+                    onDragOver={(e) => { e.preventDefault(); if (dragOverId !== cred.id) setDragOverId(cred.id); }}
+                    onDragLeave={() => setDragOverId((id) => (id === cred.id ? null : id))}
+                    onDrop={() => handleDrop(cred.id)}
+                    onDragEnd={() => { setDraggedId(null); setDragOverId(null); }}
+                    style={{
+                      background: editingId === cred.id ? 'var(--surface-2)' : undefined,
+                      opacity: draggedId === cred.id ? 0.4 : 1,
+                      borderTop: dragOverId === cred.id && draggedId !== cred.id ? '2px solid var(--accent)' : undefined,
+                    }}
+                  >
+                    <td className="hint" style={{ cursor: 'grab' }} title="Drag to reorder">
+                      <GripIcon />
+                    </td>
+                    <td>{cred.name}</td>
+                    <td>
+                      <span className="badge neutral">{cred.type === 'web_login' ? 'Web Login' : 'Basic Auth'}</span>
+                    </td>
+                    <td className="mono">{cred.username}</td>
+                    <td className="mono">••••••••</td>
+                    <td className="row-actions">
+                      <OptionsMenu
+                        items={[
+                          ...(cred.type === 'web_login'
+                            ? [{ label: testingId === cred.id ? 'Testing...' : 'Test Login', onClick: () => handleTestLogin(cred), disabled: testingId === cred.id }]
+                            : []),
+                          { label: 'Edit', icon: <EditIcon />, onClick: () => startEdit(cred) },
+                          { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(cred), danger: true },
+                        ]}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </React.Fragment>
             ))}
-            {credentials.length === 0 && <tr><td colSpan={7} className="empty-state">No saved credentials yet.</td></tr>}
+            {credentials.length === 0 && <tr><td colSpan={6} className="empty-state">No saved credentials yet.</td></tr>}
           </tbody>
         </table>
       </div>

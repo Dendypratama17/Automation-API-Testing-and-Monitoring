@@ -4,6 +4,7 @@ import { TrashIcon, EditIcon, GripIcon } from '../components/icons.jsx';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
 import OptionsMenu from '../components/OptionsMenu.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
+import { groupByEnv } from '../utils/envBadge.js';
 
 const emptyForm = { key: '', value: '', label: '', environment_id: '' };
 const emptyValueForm = { value: '', label: '', environment_id: '' };
@@ -159,12 +160,12 @@ export default function DefaultHeaders() {
           <input placeholder="Value (e.g. Web)" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} style={{ flex: 1 }} />
           <input placeholder="Name (optional, e.g. CHE7573)" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} />
           <select value={form.environment_id} onChange={(e) => setForm({ ...form, environment_id: e.target.value })}>
-            <option value="">No Env</option>
+            <option value="">Select Env</option>
             {environments.map((env) => <option key={env.id} value={env.id}>{env.name}</option>)}
           </select>
         </div>
         <div className="toolbar" style={{ marginTop: 12 }}>
-          <button className="btn-primary" onClick={handleSubmit}>{editingId ? 'Save' : 'Add'}</button>
+          <button className="btn-primary" onClick={handleSubmit} disabled={!form.key || !form.value || !form.environment_id}>{editingId ? 'Save' : 'Add'}</button>
           {editingId && <button onClick={cancelEdit}>Cancel</button>}
         </div>
       </div>
@@ -198,45 +199,48 @@ export default function DefaultHeaders() {
                 </td>
                 <td className="mono" style={{ verticalAlign: 'top', paddingTop: 14 }}>{group.key}</td>
                 <td>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: '6px 0' }}>
-                    {group.values.map((v) => (
-                      <div
-                        key={v.id}
-                        className="value-chip"
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 4,
-                          background: editingId === v.id ? 'var(--surface-2)' : 'var(--surface)',
-                          border: '1px solid var(--border)',
-                          borderRadius: 8, padding: '5px 4px 5px 8px',
-                        }}
-                      >
-                        <span style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 6, maxWidth: 320 }}>
-                          {v.label && (
-                            <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
-                              {v.label}{v.environment_name ? ` (${v.environment_name})` : ''}
-                            </span>
-                          )}
-                          <span
-                            className="mono hint"
-                            title={v.value}
-                            style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '6px 0' }}>
+                    {groupByEnv(group.values, (v) => v.environment_name).map((envGroup) => (
+                      <div key={envGroup.key} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                        <span className="badge neutral" style={{ flexShrink: 0 }}>{envGroup.key}</span>
+                        {envGroup.items.map((v) => (
+                          <div
+                            key={v.id}
+                            className="value-chip"
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 4,
+                              background: editingId === v.id ? 'var(--surface-2)' : 'var(--surface)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 8, padding: '5px 4px 5px 8px',
+                            }}
                           >
-                            {v.value}
-                          </span>
-                        </span>
-                        <span className="value-chip-options">
-                          <OptionsMenu
-                            items={[
-                              { label: 'Edit', icon: <EditIcon />, onClick: () => startEdit(v) },
-                              { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(v), danger: true },
-                            ]}
-                          />
-                        </span>
+                            <span style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 6, maxWidth: 320 }}>
+                              {v.label && (
+                                <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{v.label}</span>
+                              )}
+                              <span
+                                className="mono hint"
+                                title={v.value}
+                                style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                              >
+                                {v.value}
+                              </span>
+                            </span>
+                            <span className="value-chip-options">
+                              <OptionsMenu
+                                items={[
+                                  { label: 'Edit', icon: <EditIcon />, onClick: () => startEdit(v) },
+                                  { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(v), danger: true },
+                                ]}
+                              />
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     ))}
 
                     {addingValueForKey === group.key ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start' }}>
                         <input
                           autoFocus
                           placeholder="New value"
@@ -262,14 +266,20 @@ export default function DefaultHeaders() {
                           value={newValueForm.environment_id}
                           onChange={(e) => setNewValueForm({ ...newValueForm, environment_id: e.target.value })}
                         >
-                          <option value="">No Env</option>
+                          <option value="">Select Env</option>
                           {environments.map((env) => <option key={env.id} value={env.id}>{env.name}</option>)}
                         </select>
-                        <button className="btn-primary" onClick={() => confirmAddValue(group.key)}>Add</button>
+                        <button
+                          className="btn-primary"
+                          onClick={() => confirmAddValue(group.key)}
+                          disabled={!newValueForm.value.trim() || !newValueForm.environment_id}
+                        >
+                          Add
+                        </button>
                         <button onClick={cancelAddValue}>Cancel</button>
                       </div>
                     ) : (
-                      <button className="btn-quiet" onClick={() => startAddValue(group.key)}>+ Add value</button>
+                      <button className="btn-quiet" onClick={() => startAddValue(group.key)} style={{ alignSelf: 'flex-start' }}>+ Add value</button>
                     )}
                   </div>
                 </td>

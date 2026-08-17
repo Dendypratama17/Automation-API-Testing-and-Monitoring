@@ -422,6 +422,37 @@ button.btn-danger-solid:hover { background: #f65f5f; border-color: #f65f5f; }
 .header-value-item-env { flex-shrink: 0; }
 .header-value-item-value { flex-shrink: 0; width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Fixed width so "Basic Auth" and "Web Login (Bearer)" badges line up in a
+   list instead of each hugging its own (different-length) text. */
+.auth-type-badge { flex-shrink: 0; width: 90px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Section header inside a grouped BulkSelectDropdown list (e.g. one per
+   environment) — a plain label, not clickable, so options stay visually
+   sorted into their environment instead of one long mixed list. */
+.cred-select-group-label {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* Same idea as .cred-select-group-label, but as a full-width table row —
+   groups a Config table's rows by environment (Authorization, Default
+   Headers) instead of one long mixed list. */
+.table-group-header {
+  padding: 8px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
 /* A chip's own Options (⋮) trigger only appears on hover/focus — keeps a row
    of many small chips (e.g. Default Headers values) from looking cluttered
    with a button on every single one at rest. */

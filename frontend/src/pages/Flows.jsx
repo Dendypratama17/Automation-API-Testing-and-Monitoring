@@ -24,7 +24,6 @@ import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
 import { exportRunResultToPdf } from '../utils/exportRunResultPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
 import { loadSelectedFolder, saveSelectedFolder, hasStoredFolder } from '../utils/persistedFolder.js';
-import { envBadgeClass } from '../utils/envBadge.js';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const BODY_METHODS = ['POST', 'PUT'];
@@ -329,12 +328,29 @@ function stepToPayload(step, endpoints) {
   };
 }
 
+// Known environments sort first (in this fixed, meaningful order); anything
+// else (a group key groupBy didn't recognize) is appended alphabetically
+// after, rather than in whatever order it happened to appear in the list.
+const ENV_GROUP_ORDER = ['DEV', 'STG', 'RC', 'PROD'];
+function sortGroupKeys(keys) {
+  return [...keys].sort((a, b) => {
+    const ai = ENV_GROUP_ORDER.indexOf(a.toUpperCase());
+    const bi = ENV_GROUP_ORDER.indexOf(b.toUpperCase());
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+}
+
 // A styled, portal-based dropdown for one-off bulk-apply pickers (e.g. "Set
 // X-Token" below) — matches the app's existing cred-select-list/-item look
 // (see AuthorizationField/HeaderValueSelect) instead of a native <select>.
 // Unlike those two, there's no text-input side: nothing here is ever typed,
-// it's purely "pick one of these to apply to every step."
-function BulkSelectDropdown({ placeholder, options, onPick, renderOption }) {
+// it's purely "pick one of these to apply to every step." An optional
+// `groupBy` splits the list into labelled sections (e.g. one per
+// environment) instead of one long mixed list — see "Select account" below.
+function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title, groupBy }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const wrapRef = useRef(null);
@@ -385,6 +401,7 @@ function BulkSelectDropdown({ placeholder, options, onPick, renderOption }) {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
         }}
         onClick={() => (open ? setOpen(false) : openList())}
+        title={title}
       >
         <span>{placeholder}</span>
         <ChevronIcon style={{ transform: 'rotate(90deg)', flexShrink: 0, color: 'var(--text-dim)' }} />
@@ -392,12 +409,39 @@ function BulkSelectDropdown({ placeholder, options, onPick, renderOption }) {
       {open && pos && createPortal(
         <div ref={listRef} className="cred-select-list" style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width }}>
           {options.length === 0 && <div className="hint" style={{ padding: '8px 10px', fontSize: 12.5 }}>Nothing configured yet.</div>}
-          {options.map((opt, i) => (
-            <button type="button" key={i} className="cred-select-item" onClick={() => { setOpen(false); onPick(opt); }}>
-              <span className="cred-select-check"><CheckIcon style={{ visibility: 'hidden' }} /></span>
-              {renderOption(opt)}
-            </button>
-          ))}
+          {groupBy ? (
+            (() => {
+              const groups = new Map();
+              for (const opt of options) {
+                const key = groupBy(opt) || 'Other';
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(opt);
+              }
+              return sortGroupKeys([...groups.keys()]).map((key, gi) => (
+                <div key={key}>
+                  <div
+                    className="cred-select-group-label"
+                    style={gi > 0 ? { marginTop: 6, borderTop: '1px solid var(--border)', paddingTop: 10 } : undefined}
+                  >
+                    {key}
+                  </div>
+                  {groups.get(key).map((opt, i) => (
+                    <button type="button" key={i} className="cred-select-item" onClick={() => { setOpen(false); onPick(opt); }}>
+                      <span className="cred-select-check"><CheckIcon style={{ visibility: 'hidden' }} /></span>
+                      {renderOption(opt)}
+                    </button>
+                  ))}
+                </div>
+              ));
+            })()
+          ) : (
+            options.map((opt, i) => (
+              <button type="button" key={i} className="cred-select-item" onClick={() => { setOpen(false); onPick(opt); }}>
+                <span className="cred-select-check"><CheckIcon style={{ visibility: 'hidden' }} /></span>
+                {renderOption(opt)}
+              </button>
+            ))
+          )}
         </div>,
         document.body
       )}
@@ -461,7 +505,6 @@ export default function Flows() {
   const [curlPasteText, setCurlPasteText] = useState('');
   const [curlPasteError, setCurlPasteError] = useState('');
   const [curlPasteLoading, setCurlPasteLoading] = useState(false);
-  const [bulkAuthCredentialId, setBulkAuthCredentialId] = useState('');
   const [error, setError] = useState('');
   const [runResult, setRunResult] = useState(null);
   const [running, setRunning] = useState(false);
@@ -1472,46 +1515,39 @@ export default function Flows() {
                   <option value="">Select folder...</option>
                   {flattenFolders(folders).map((f) => <option key={f.id} value={f.id}>{folderOptionLabel(f)}</option>)}
                 </select>
-                <select
-                  value={bulkAuthCredentialId}
-                  onChange={(e) => {
-                    const credId = e.target.value;
-                    if (credId) {
-                      const emptyCount = editingFlow.steps.filter((s) => !s.authCredentialId).length;
-                      const steps = editingFlow.steps.map((step) => (
-                        !step.authCredentialId ? { ...step, authCredentialId: credId } : step
-                      ));
-                      setEditingFlow({ ...editingFlow, steps });
-                      // The select itself resets to the placeholder right after
-                      // this (below) since it's a one-time fill action, not a
-                      // persisted flow-level setting — without this toast that
-                      // reset alone looks like the pick silently did nothing.
-                      const credName = authCredentials.find((c) => String(c.id) === credId)?.name || 'credential';
-                      showToast(
-                        emptyCount > 0
-                          ? `Filled Authorization for ${emptyCount} step${emptyCount === 1 ? '' : 's'} with "${credName}".`
-                          : 'Every step already has its own Authorization set — nothing to fill.'
-                      );
-                    }
-                    setBulkAuthCredentialId('');
-                  }}
-                  style={{ flex: 1, minWidth: 0 }}
+                <BulkSelectDropdown
+                  placeholder="Select account"
                   title="Fills the Authorization of every step that doesn't have one set yet. Each step keeps that credential going forward — token refresh happens automatically whenever it's close to expiring, no flow-level setting needed."
-                >
-                  <option value="">Select account</option>
-                  {authCredentials.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                  options={authCredentials}
+                  groupBy={(c) => c.environment_name || 'No Environment'}
+                  renderOption={(c) => (
+                    <>
+                      <span className="header-value-item-name">{c.name}</span>
+                      <span className="badge neutral auth-type-badge">
+                        {c.type === 'web_login' ? 'Web Login (Bearer)' : 'Basic Auth'}
+                      </span>
+                    </>
+                  )}
+                  onPick={(c) => {
+                    const emptyCount = editingFlow.steps.filter((s) => !s.authCredentialId).length;
+                    const steps = editingFlow.steps.map((step) => (
+                      !step.authCredentialId ? { ...step, authCredentialId: String(c.id) } : step
+                    ));
+                    setEditingFlow({ ...editingFlow, steps });
+                    showToast(
+                      emptyCount > 0
+                        ? `Filled Authorization for ${emptyCount} step${emptyCount === 1 ? '' : 's'} with "${c.name}".`
+                        : 'Every step already has its own Authorization set — nothing to fill.'
+                    );
+                  }}
+                />
                 <BulkSelectDropdown
                   placeholder="Set X-Token"
                   options={xTokenOptions}
+                  groupBy={(h) => h.environment_name || 'No Environment'}
                   renderOption={(h) => (
                     <>
                       <span className="header-value-item-name">{h.label || 'X-Token'}</span>
-                      {h.environment_name && (
-                        <span className={`badge ${envBadgeClass(h.environment_name)} header-value-item-env`}>{h.environment_name}</span>
-                      )}
                       <span className="badge neutral mono header-value-item-value" title={h.value}>{h.value}</span>
                     </>
                   )}

@@ -86,7 +86,7 @@ export default function AuthorizationField({ credentials, credentialId, rawValue
         onChange={(e) => handleTyped(e.target.value)}
       />
       {selectedCred && (
-        <span className={`badge ${selectedCred.type === 'web_login' ? 'info' : 'drift'}`} style={{ flexShrink: 0, marginRight: 6 }}>
+        <span className="badge neutral" style={{ flexShrink: 0, marginRight: 6 }}>
           {selectedCred.type === 'web_login' ? 'Web Login (Bearer)' : 'Basic Auth'}
         </span>
       )}
@@ -112,7 +112,7 @@ export default function AuthorizationField({ credentials, credentialId, rawValue
             <button type="button" key={cred.id} className="cred-select-item" onClick={() => pickCredential(cred)}>
               <span className="cred-select-check">{String(credentialId) === String(cred.id) && <CheckIcon />}</span>
               <span className="cred-select-item-label">{cred.name}{cred.environment_name ? ` (${cred.environment_name})` : ''}</span>
-              <span className={`badge ${cred.type === 'web_login' ? 'info' : 'drift'}`}>
+              <span className="badge neutral auth-type-badge">
                 {cred.type === 'web_login' ? 'Web Login (Bearer)' : 'Basic Auth'}
               </span>
             </button>
