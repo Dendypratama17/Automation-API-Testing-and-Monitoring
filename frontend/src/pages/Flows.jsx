@@ -4,13 +4,13 @@ import {
   getFolders, createFolder, updateFolder, deleteFolder,
   getFlows, getFlow, createFlow, updateFlow, deleteFlow, duplicateFlow, reorderFlows,
   runFlow, cancelFlowRun, getRunProgress, batchRunFlows, runFlowStep, updateFlowStep, updateAllFlowSteps, getEndpoints, getEnvironments, getAuthCredentials, getDefaultHeaders,
-  parseCurlForStep,
+  parseCurlForStep, sendDocumentToTelegram,
 } from '../api/client';
 import JsonBlock from '../components/JsonBlock.jsx';
 import JsonPasteEditor from '../components/JsonPasteEditor.jsx';
 import KeyValueEditor, { objectToRows, rowsToObject } from '../components/KeyValueEditor.jsx';
 import FormDataEditor, { objectToFormRows, formRowsToObject, emptyFormRow } from '../components/FormDataEditor.jsx';
-import { TrashIcon, EditIcon, PlayIcon, ChevronIcon, CopyIcon, GripIcon, FolderIcon, XIcon, CheckIcon } from '../components/icons.jsx';
+import { TrashIcon, EditIcon, PlayIcon, ChevronIcon, CopyIcon, GripIcon, FolderIcon, XIcon, CheckIcon, DownloadIcon, SendIcon } from '../components/icons.jsx';
 import FolderTree from '../components/FolderTree.jsx';
 import AssertionsEditor, { objectToAssertionRows, assertionRowsToArray, emptyAssertionRow } from '../components/AssertionsEditor.jsx';
 import ExtractVariableEditor, { arrayToExtractRows, extractRowsToArray } from '../components/ExtractVariableEditor.jsx';
@@ -21,7 +21,7 @@ import AuthorizationField from '../components/AuthorizationField.jsx';
 import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
 import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
-import { exportRunResultToPdf } from '../utils/exportRunResultPdf.js';
+import { exportRunResultToPdf, getRunResultPdfBase64 } from '../utils/exportRunResultPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
 import { loadSelectedFolder, saveSelectedFolder, hasStoredFolder } from '../utils/persistedFolder.js';
 
@@ -507,6 +507,7 @@ export default function Flows() {
   const [curlPasteLoading, setCurlPasteLoading] = useState(false);
   const [error, setError] = useState('');
   const [runResult, setRunResult] = useState(null);
+  const [sharingRunResult, setSharingRunResult] = useState(false);
   const [running, setRunning] = useState(false);
   const [runningFlowId, setRunningFlowId] = useState(null);
   const [runningToken, setRunningToken] = useState(null);
@@ -1082,6 +1083,23 @@ export default function Flows() {
     } catch (err) {
       setError(err.response?.data?.error || err.message);
       refreshFlowList();
+    }
+  };
+
+  const handleShareRunResultToTelegram = async () => {
+    setSharingRunResult(true);
+    try {
+      const { base64, filename } = getRunResultPdfBase64(runResult);
+      await sendDocumentToTelegram({
+        filename,
+        caption: `Flow Run: ${runResult.flow_name} — ${runResult.flow_run.status}`,
+        fileBase64: base64,
+      });
+      showToast('Sent to Telegram.');
+    } catch (err) {
+      showToast(err.response?.data?.error || err.message, 'error');
+    } finally {
+      setSharingRunResult(false);
     }
   };
 
@@ -1928,7 +1946,14 @@ export default function Flows() {
                   Run Result: {runResult.flow_name} — <span className={`badge ${runResult.flow_run.status.toLowerCase()}`}>{runResult.flow_run.status}</span>
                 </h4>
                 <div className="toolbar">
-                  <button onClick={() => exportRunResultToPdf(runResult)}>Export PDF</button>
+                  <OptionsMenu
+                    label="Export"
+                    title="Download this run result as a PDF, or share it straight to Telegram"
+                    items={[
+                      { label: 'Download PDF', icon: <DownloadIcon />, onClick: () => exportRunResultToPdf(runResult) },
+                      { label: sharingRunResult ? 'Sharing...' : 'Share to Telegram', icon: <SendIcon />, onClick: handleShareRunResultToTelegram, disabled: sharingRunResult },
+                    ]}
+                  />
                   <button className="btn-quiet" onClick={() => setRunResult(null)}>✕ Close</button>
                 </div>
               </div>

@@ -78,6 +78,17 @@ router.put('/:id', catchAsync(async (req, res) => {
   res.json(withoutPassword(result.rows[0]));
 }));
 
+// REVEAL the real password — gated behind a PIN (checked server-side too,
+// not just in the UI, so hitting this endpoint directly without going
+// through the "View password" prompt still requires it).
+router.post('/:id/reveal-password', catchAsync(async (req, res) => {
+  const { pin } = req.body;
+  if (pin !== '111') return res.status(403).json({ error: 'Incorrect PIN.' });
+  const result = await pool.query('SELECT password FROM auth_credentials WHERE id=$1', [req.params.id]);
+  if (!result.rows[0]) return res.status(404).json({ error: 'Credential not found' });
+  res.json({ password: decrypt(result.rows[0].password) });
+}));
+
 // DELETE credential (flow steps using it just fall back to no auth, via ON DELETE SET NULL)
 router.delete('/:id', catchAsync(async (req, res) => {
   await pool.query('DELETE FROM auth_credentials WHERE id=$1', [req.params.id]);

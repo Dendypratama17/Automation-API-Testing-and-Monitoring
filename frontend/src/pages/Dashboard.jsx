@@ -2,12 +2,15 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   LineChart, Line, Bar, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ReferenceLine, ResponsiveContainer,
 } from 'recharts';
-import { getEndpointDetail, getEndpointTrend, getAlerts, getLastRuns, getLastFlowRuns, getAnalytics, getEnvironments, getFlowRun, getFlow } from '../api/client';
+import { getEndpointDetail, getEndpointTrend, getAlerts, getLastRuns, getLastFlowRuns, getAnalytics, getEnvironments, getFlowRun, getFlow, sendDocumentToTelegram } from '../api/client';
 import JsonBlock from '../components/JsonBlock.jsx';
 import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
-import { exportRunResultToPdf } from '../utils/exportRunResultPdf.js';
+import { exportRunResultToPdf, getRunResultPdfBase64 } from '../utils/exportRunResultPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
+import OptionsMenu from '../components/OptionsMenu.jsx';
+import { DownloadIcon, SendIcon } from '../components/icons.jsx';
+import { useToast } from '../components/ToastProvider.jsx';
 
 // A generic, commonly-used API response-time guideline — not tied to any
 // specific assertion, just a visual reference line on the aggregate chart so
@@ -124,12 +127,33 @@ function HitRow({ row, selectedRowId, onSelect }) {
 // (Recent Hits or Recent Alerts) the row was clicked from, so it never
 // appears to "do nothing" when clicked from the lower table.
 function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, runInfo, stepHeaders, trend, closeDetail, detailRef }) {
-  const handleExport = () => {
-    exportRunResultToPdf({
-      flow_run: { id: runInfo?.id ?? selectedRow.flow_run_id, status: runInfo?.status ?? selectedRow.status, created_at: runInfo?.created_at ?? selectedRow.created_at },
-      flow_name: runInfo?.flow_name || selectedRow.flow_name,
-      steps: runSteps.length > 0 ? runSteps : [selectedRow],
-    });
+  const showToast = useToast();
+  const [sharing, setSharing] = useState(false);
+
+  const buildRunResult = () => ({
+    flow_run: { id: runInfo?.id ?? selectedRow.flow_run_id, status: runInfo?.status ?? selectedRow.status, created_at: runInfo?.created_at ?? selectedRow.created_at },
+    flow_name: runInfo?.flow_name || selectedRow.flow_name,
+    steps: runSteps.length > 0 ? runSteps : [selectedRow],
+  });
+
+  const handleExport = () => exportRunResultToPdf(buildRunResult());
+
+  const handleShareToTelegram = async () => {
+    setSharing(true);
+    try {
+      const runResult = buildRunResult();
+      const { base64, filename } = getRunResultPdfBase64(runResult);
+      await sendDocumentToTelegram({
+        filename,
+        caption: `Flow Run: ${runResult.flow_name} — ${runResult.flow_run.status}`,
+        fileBase64: base64,
+      });
+      showToast('Sent to Telegram.');
+    } catch (err) {
+      showToast(err.response?.data?.error || err.message, 'error');
+    } finally {
+      setSharing(false);
+    }
   };
 
   return (
@@ -137,7 +161,14 @@ function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, runInfo
       <div className="card-row">
         <h4 style={{ margin: 0 }}>{detail.endpoint.method} {detail.endpoint.name}</h4>
         <div className="toolbar">
-          <button onClick={handleExport}>Export PDF</button>
+          <OptionsMenu
+            label="Export"
+            title="Download this run result as a PDF, or share it straight to Telegram"
+            items={[
+              { label: 'Download PDF', icon: <DownloadIcon />, onClick: handleExport },
+              { label: sharing ? 'Sharing...' : 'Share to Telegram', icon: <SendIcon />, onClick: handleShareToTelegram, disabled: sharing },
+            ]}
+          />
           <button className="btn-quiet" onClick={closeDetail}>✕ Close</button>
         </div>
       </div>

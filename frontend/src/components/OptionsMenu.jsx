@@ -21,8 +21,13 @@ import { DotsIcon, ChevronIcon } from './icons.jsx';
  * An item can instead carry `submenu: [{ label, icon, onClick }]` (e.g.
  * "Move to Folder" listing every folder) — clicking it swaps the panel to
  * that submenu instead of closing, with a "Back" row to return.
+ *
+ * By default the trigger is the icon-only "⋮" button (a row's secondary
+ * actions). Passing `label` instead renders a normal text button with a
+ * chevron — e.g. an "Export ▾" button offering "Download PDF" / "Share to
+ * Telegram" as one combined action instead of two separate buttons.
  */
-export default function OptionsMenu({ items, icon, title = 'Options' }) {
+export default function OptionsMenu({ items, icon, title = 'Options', label, className }) {
   const [open, setOpen] = useState(false);
   const [submenuIndex, setSubmenuIndex] = useState(null);
   const [menuPos, setMenuPos] = useState(null);
@@ -73,12 +78,17 @@ export default function OptionsMenu({ items, icon, title = 'Options' }) {
   return (
     <div ref={triggerRef} style={{ position: 'relative', display: 'inline-block' }} onClick={(e) => e.stopPropagation()}>
       <button
-        className="btn-icon"
+        className={className ?? (label ? '' : 'btn-icon')}
         onClick={toggleOpen}
         title={title}
         aria-label={title}
       >
-        {icon || <DotsIcon />}
+        {label ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {label}
+            <ChevronIcon style={{ transform: 'rotate(90deg)', width: 12, height: 12 }} />
+          </span>
+        ) : (icon || <DotsIcon />)}
       </button>
       {open && menuPos && createPortal(
         <div ref={menuRef} className="options-menu" style={{ position: 'fixed', top: menuPos.top, right: menuPos.right }}>

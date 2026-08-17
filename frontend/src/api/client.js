@@ -64,6 +64,7 @@ export const updateAuthCredential = (id, data) => api.put(`/auth-credentials/${i
 export const deleteAuthCredential = (id) => api.delete(`/auth-credentials/${id}`).then((r) => r.data);
 export const reorderAuthCredentials = (ids) => api.put('/auth-credentials/reorder', { ids }).then((r) => r.data);
 export const testAuthCredentialLogin = (id) => api.post(`/auth-credentials/${id}/test-login`).then((r) => r.data);
+export const revealAuthCredentialPassword = (id, pin) => api.post(`/auth-credentials/${id}/reveal-password`, { pin }).then((r) => r.data);
 
 export const getDefaultHeaders = () => api.get('/default-headers').then((r) => r.data);
 export const createDefaultHeader = (data) => api.post('/default-headers', data).then((r) => r.data);

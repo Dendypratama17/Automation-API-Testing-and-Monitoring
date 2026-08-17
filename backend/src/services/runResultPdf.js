@@ -1,8 +1,12 @@
-import { jsPDF } from 'jspdf';
-import { describeAssertionParts } from './assertionDescriptions.js';
+const { jsPDF } = require('jspdf');
+const { describeAssertionParts } = require('./assertionDescriptions');
 
-// A base64 file blob would dump megabytes of unreadable text into the PDF —
-// same idea as the backend's sanitizeBodyForStorage / the JSON-tab preview.
+// Backend port of frontend/src/utils/exportRunResultPdf.js's buildRunResultPdf
+// — same visual report, generated server-side (no browser/DOM available)
+// so it can be attached to the automatic Telegram alert on a failed run,
+// not just the manual "Share to Telegram" click from the browser. Kept in
+// sync by hand; a change to one report's look should mirror in the other.
+
 function sanitizeBody(body) {
   if (Array.isArray(body)) return body.map(sanitizeBody);
   if (body && typeof body === 'object') {
@@ -32,15 +36,13 @@ const BOX_BORDER = [222, 225, 231];
 const RULE = [228, 230, 235];
 
 /**
- * Renders a flow run result (steps, assertions, extracted variables, request
- * / response bodies) into a styled, multi-page PDF report. Built from
- * structured data (not a DOM screenshot) so pagination and text wrapping
- * stay clean regardless of how long the JSON bodies are. Returns the built
- * jsPDF instance plus a filesystem-safe filename, shared by both the
- * "download" and "share to Telegram" entry points below so the PDF-building
- * logic itself only lives in one place.
+ * Renders a flow run (steps, assertions, extracted variables, request /
+ * response bodies) into a styled, multi-page PDF report. `flowRun` is the
+ * flat shape already used by notifyFlowIfNeeded: { id, status, created_at,
+ * flow_name, environment_name, steps }. Returns { buffer, filename } — a
+ * plain Node Buffer, ready for sendTelegramDocument.
  */
-function buildRunResultPdf(runResult) {
+function buildRunResultPdf(flowRun) {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -70,8 +72,6 @@ function buildRunResultPdf(runResult) {
     }
   };
 
-  // Small filled circle with a hand-drawn check/x mark — avoids relying on
-  // unicode glyphs, which the standard PDF fonts don't reliably render.
   const drawStatusDot = (cx, cy, passed) => {
     doc.setFillColor(...(passed ? STATUS_COLORS.PASS : STATUS_COLORS.FAIL));
     doc.circle(cx, cy, 4.5, 'F');
@@ -86,7 +86,6 @@ function buildRunResultPdf(runResult) {
     }
   };
 
-  // Rounded, filled pill with white bold text — used for step/flow status.
   const drawBadge = (text, x, top, color) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
@@ -99,9 +98,6 @@ function buildRunResultPdf(runResult) {
     return w;
   };
 
-  // A labelled, shaded monospace box — paginates itself by drawing a fresh
-  // box on the next page if the content doesn't fit in what's left of the
-  // current one, instead of assuming it always fits in one piece.
   const drawCodeBlock = (label, text) => {
     addText(label, { size: 9.5, style: 'bold', color: MUTED, gapBefore: 10 });
     const innerWidth = maxWidth - 16;
@@ -150,8 +146,8 @@ function buildRunResultPdf(runResult) {
   y = 54 + 24;
 
   // ---- Summary card ----
-  const flowRun = runResult.flow_run;
-  const counts = runResult.steps.reduce((acc, s) => { acc[s.status] = (acc[s.status] || 0) + 1; return acc; }, {});
+  const steps = flowRun.steps || [];
+  const counts = steps.reduce((acc, s) => { acc[s.status] = (acc[s.status] || 0) + 1; return acc; }, {});
   const countsLine = Object.entries(counts).map(([k, v]) => `${v} ${k}`).join('  •  ');
 
   const summaryHeight = 74;
@@ -162,7 +158,7 @@ function buildRunResultPdf(runResult) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(...INK);
-  doc.text(runResult.flow_name || 'Flow', margin + 14, y + 24);
+  doc.text(flowRun.flow_name || 'Flow', margin + 14, y + 24);
   drawBadge(flowRun.status, margin + 14, y + 34, statusColor(flowRun.status));
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
@@ -172,7 +168,7 @@ function buildRunResultPdf(runResult) {
   y += summaryHeight + 22;
 
   // ---- Steps ----
-  runResult.steps.forEach((step, idx) => {
+  steps.forEach((step, idx) => {
     ensureSpace(46);
 
     doc.setFillColor(...statusColor(step.status));
@@ -227,7 +223,7 @@ function buildRunResultPdf(runResult) {
     if (step.request_body != null) drawCodeBlock('Request Body', JSON.stringify(sanitizeBody(step.request_body), null, 2));
     if (step.response_body != null) drawCodeBlock('Response Body', JSON.stringify(sanitizeBody(step.response_body), null, 2));
 
-    if (idx < runResult.steps.length - 1) {
+    if (idx < steps.length - 1) {
       ensureSpace(20);
       y += 8;
       doc.setDrawColor(...RULE);
@@ -249,19 +245,8 @@ function buildRunResultPdf(runResult) {
     doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - footerZone + 12, { align: 'right' });
   }
 
-  return { doc, filename: `flow-run-${flowRun.id}.pdf` };
+  const buffer = Buffer.from(doc.output('arraybuffer'));
+  return { buffer, filename: `flow-run-${flowRun.id}.pdf` };
 }
 
-export function exportRunResultToPdf(runResult) {
-  const { doc, filename } = buildRunResultPdf(runResult);
-  doc.save(filename);
-}
-
-// Base64 payload (no data-URI prefix) + filename, for POSTing to a backend
-// endpoint (e.g. "Share to Telegram") instead of triggering a local download.
-export function getRunResultPdfBase64(runResult) {
-  const { doc, filename } = buildRunResultPdf(runResult);
-  const dataUri = doc.output('datauristring');
-  const base64 = dataUri.slice(dataUri.indexOf(',') + 1);
-  return { base64, filename };
-}
+module.exports = { buildRunResultPdf };

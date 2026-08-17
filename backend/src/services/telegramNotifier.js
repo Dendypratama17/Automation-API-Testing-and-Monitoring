@@ -1,5 +1,6 @@
 const axios = require('axios');
 const pool = require('../db/pool');
+const { buildRunResultPdf } = require('./runResultPdf');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -33,11 +34,12 @@ async function sendTelegramMessage(text) {
 }
 
 /**
- * Share an arbitrary file (e.g. a JSON Diff PDF export) to the same
- * configured chat, via Telegram's sendDocument — a manual, user-triggered
- * action (an explicit "Share to Telegram" click), unlike sendTelegramMessage
- * above which is only ever called automatically from a flow run result.
- * Native FormData/Blob (Node 20+) — no extra multipart-body dependency.
+ * Share an arbitrary file (e.g. a JSON Diff / flow-run PDF export) to the
+ * configured doc chat/topic, via Telegram's sendDocument. Called two ways:
+ * manually (an explicit "Share to Telegram" click from the browser) and
+ * automatically (notifyFlowIfNeeded below, attaching the run's PDF report
+ * whenever it sends a failure alert). Native FormData/Blob (Node 20+) — no
+ * extra multipart-body dependency.
  */
 async function sendTelegramDocument(buffer, filename, caption = '') {
   if (!DOC_BOT_TOKEN || !DOC_CHAT_ID) {
@@ -268,6 +270,19 @@ async function notifyFlowIfNeeded(flowRun, previousStatus = null) {
     } catch (err) {
       logStatus = 'failed';
       console.error('[telegramNotifier] failed to send:', err.message);
+    }
+
+    // A failed/erroring run also gets its full PDF report attached (to the
+    // doc bot/topic, same as a manual "Share to Telegram") — not just the
+    // short text alert above. Kept in its own try/catch so a PDF/Telegram
+    // hiccup here never blocks or fails the text alert already sent.
+    if (isBad) {
+      try {
+        const { buffer, filename } = buildRunResultPdf(flowRun);
+        await sendTelegramDocument(buffer, filename, `${flowRun.status}: ${flowRun.flow_name}`);
+      } catch (err) {
+        console.error('[telegramNotifier] failed to send PDF report:', err.message);
+      }
     }
   }
 

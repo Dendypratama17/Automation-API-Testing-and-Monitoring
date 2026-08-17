@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { getAuthCredentials, createAuthCredential, updateAuthCredential, deleteAuthCredential, reorderAuthCredentials, testAuthCredentialLogin, getEnvironments } from '../api/client';
-import { TrashIcon, EditIcon, GripIcon } from '../components/icons.jsx';
+import { getAuthCredentials, createAuthCredential, updateAuthCredential, deleteAuthCredential, reorderAuthCredentials, testAuthCredentialLogin, revealAuthCredentialPassword, getEnvironments } from '../api/client';
+import { TrashIcon, EditIcon, GripIcon, EyeIcon, EyeOffIcon } from '../components/icons.jsx';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
 import OptionsMenu from '../components/OptionsMenu.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
@@ -19,6 +19,12 @@ export default function Authorization() {
   const [draggedId, setDraggedId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
   const [testingId, setTestingId] = useState(null);
+  // Password stays masked until its PIN is entered — see revealPassword.
+  // Once revealed for a row, it stays visible (re-hide doesn't need the PIN
+  // again) until the page is reloaded.
+  const [pinPromptId, setPinPromptId] = useState(null);
+  const [pinValue, setPinValue] = useState('');
+  const [revealedPasswords, setRevealedPasswords] = useState({});
 
   const load = () => getAuthCredentials().then(setCredentials);
   useEffect(() => {
@@ -52,6 +58,33 @@ export default function Authorization() {
     } finally {
       setTestingId(null);
     }
+  };
+
+  const startPinPrompt = (credId) => {
+    setPinPromptId(credId);
+    setPinValue('');
+  };
+  const cancelPinPrompt = () => {
+    setPinPromptId(null);
+    setPinValue('');
+  };
+  const submitPin = async (cred) => {
+    try {
+      const { password } = await revealAuthCredentialPassword(cred.id, pinValue);
+      setRevealedPasswords((prev) => ({ ...prev, [cred.id]: password }));
+    } catch (err) {
+      showToast(err.response?.data?.error || err.message, 'error');
+    } finally {
+      setPinPromptId(null);
+      setPinValue('');
+    }
+  };
+  const hidePassword = (credId) => {
+    setRevealedPasswords((prev) => {
+      const next = { ...prev };
+      delete next[credId];
+      return next;
+    });
   };
 
   const cancelEdit = () => {
@@ -163,7 +196,10 @@ export default function Authorization() {
         </div>
       </div>
 
-      <div className="card" style={{ padding: 0 }}>
+      {/* overflow-x hidden — a revealed password or the PIN input can be
+          marginally wider than its column; clip it instead of letting a
+          horizontal scrollbar appear and shift the rest of the layout. */}
+      <div className="card" style={{ padding: 0, overflowX: 'hidden' }}>
         <table>
           <thead>
             <tr>
@@ -204,7 +240,58 @@ export default function Authorization() {
                       <span className="badge neutral">{cred.type === 'web_login' ? 'Web Login' : 'Basic Auth'}</span>
                     </td>
                     <td className="mono">{cred.username}</td>
-                    <td className="mono">••••••••</td>
+                    <td className="mono">
+                      {revealedPasswords[cred.id] !== undefined ? (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                          {/* draggable=false + stopping the row's dragstart — the row
+                              itself is draggable (for reordering), which otherwise
+                              hijacks a click-drag here into a row-drag instead of a
+                              normal text selection, making the value uncopyable. */}
+                          <span
+                            title={revealedPasswords[cred.id]}
+                            draggable={false}
+                            onDragStart={(e) => e.preventDefault()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, userSelect: 'text', cursor: 'text' }}
+                          >
+                            {revealedPasswords[cred.id]}
+                          </span>
+                          <button className="btn-icon" onClick={() => hidePassword(cred.id)} title="Hide password" aria-label="Hide password" style={{ flexShrink: 0 }}>
+                            <EyeOffIcon />
+                          </button>
+                        </span>
+                      ) : pinPromptId === cred.id ? (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                          {/* Padding trimmed to match the height of a .btn-icon button
+                              (the default input padding is noticeably taller) — so this
+                              row doesn't grow past its normal height and throw off the
+                              border line / Action column alignment for just this row. */}
+                          <input
+                            type="password"
+                            autoFocus
+                            placeholder="PIN"
+                            value={pinValue}
+                            onChange={(e) => setPinValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') submitPin(cred);
+                              if (e.key === 'Escape') cancelPinPrompt();
+                            }}
+                            style={{ width: 70, padding: '4px 8px' }}
+                          />
+                          <button className="btn-icon" onClick={() => submitPin(cred)} title="Confirm PIN" aria-label="Confirm PIN">
+                            <EyeIcon />
+                          </button>
+                          <button className="btn-quiet" onClick={cancelPinPrompt}>✕</button>
+                        </span>
+                      ) : (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          ••••••••
+                          <button className="btn-icon" onClick={() => startPinPrompt(cred.id)} title="View password (PIN required)" aria-label="View password">
+                            <EyeIcon />
+                          </button>
+                        </span>
+                      )}
+                    </td>
                     <td className="row-actions">
                       <OptionsMenu
                         items={[
