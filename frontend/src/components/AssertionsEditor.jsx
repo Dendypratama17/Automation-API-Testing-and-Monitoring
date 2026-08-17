@@ -1,4 +1,5 @@
 import React from 'react';
+import { CopyIcon } from './icons.jsx';
 
 const ASSERTION_TYPES = [
   { value: 'status_code', label: 'Status Code' },
@@ -154,7 +155,7 @@ const FIELD_CONFIG = {
   field_not_null: [{ key: 'path', placeholder: 'Field path (e.g. data)' }],
   field_equals: [
     { key: 'path', placeholder: 'Field path (e.g. data.status)' },
-    { key: 'expected', placeholder: 'Expected value' },
+    { key: 'expected', placeholder: 'Expected value — supports {{variable}}, e.g. {{initial_quota}} + 2' },
   ],
   field_contains: [
     { key: 'path', placeholder: 'Field path (e.g. data.message)' },
@@ -166,11 +167,11 @@ const FIELD_CONFIG = {
   ],
   field_greater_than: [
     { key: 'path', placeholder: 'Field path (e.g. data.total)' },
-    { key: 'expected', placeholder: 'Expected minimum', type: 'number' },
+    { key: 'expected', placeholder: 'Expected minimum — supports {{variable}} + N' },
   ],
   field_less_than: [
     { key: 'path', placeholder: 'Field path (e.g. data.total)' },
-    { key: 'expected', placeholder: 'Expected maximum', type: 'number' },
+    { key: 'expected', placeholder: 'Expected maximum — supports {{variable}} + N' },
   ],
   array_length: [
     { key: 'path', placeholder: 'Field path (e.g. data.items)' },
@@ -209,6 +210,11 @@ export default function AssertionsEditor({ rows, onChange }) {
   };
   const addRow = () => onChange([...rows, emptyAssertionRow()]);
   const removeRow = (idx) => onChange(rows.filter((_, i) => i !== idx));
+  const duplicateRow = (idx) => {
+    const next = [...rows];
+    next.splice(idx + 1, 0, { ...rows[idx] });
+    onChange(next);
+  };
 
   return (
     <div className="stack" style={{ gap: 6 }}>
@@ -235,6 +241,9 @@ export default function AssertionsEditor({ rows, onChange }) {
             />
           ))}
 
+          <button className="btn-quiet" onClick={() => duplicateRow(idx)} title="Duplicate this assertion">
+            <CopyIcon />
+          </button>
           <button className="btn-quiet" onClick={() => removeRow(idx)}>✕</button>
         </div>
       ))}

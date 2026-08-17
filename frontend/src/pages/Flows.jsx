@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   getFolders, createFolder, updateFolder, deleteFolder,
   getFlows, getFlow, createFlow, updateFlow, deleteFlow, duplicateFlow, reorderFlows,
@@ -9,7 +10,7 @@ import JsonBlock from '../components/JsonBlock.jsx';
 import JsonPasteEditor from '../components/JsonPasteEditor.jsx';
 import KeyValueEditor, { objectToRows, rowsToObject } from '../components/KeyValueEditor.jsx';
 import FormDataEditor, { objectToFormRows, formRowsToObject, emptyFormRow } from '../components/FormDataEditor.jsx';
-import { TrashIcon, EditIcon, PlayIcon, ChevronIcon, CopyIcon, GripIcon, FolderIcon, XIcon } from '../components/icons.jsx';
+import { TrashIcon, EditIcon, PlayIcon, ChevronIcon, CopyIcon, GripIcon, FolderIcon, XIcon, CheckIcon } from '../components/icons.jsx';
 import FolderTree from '../components/FolderTree.jsx';
 import AssertionsEditor, { objectToAssertionRows, assertionRowsToArray, emptyAssertionRow } from '../components/AssertionsEditor.jsx';
 import ExtractVariableEditor, { arrayToExtractRows, extractRowsToArray } from '../components/ExtractVariableEditor.jsx';
@@ -23,6 +24,7 @@ import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
 import { exportRunResultToPdf } from '../utils/exportRunResultPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
 import { loadSelectedFolder, saveSelectedFolder, hasStoredFolder } from '../utils/persistedFolder.js';
+import { envBadgeClass } from '../utils/envBadge.js';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const BODY_METHODS = ['POST', 'PUT'];
@@ -327,6 +329,82 @@ function stepToPayload(step, endpoints) {
   };
 }
 
+// A styled, portal-based dropdown for one-off bulk-apply pickers (e.g. "Set
+// X-Token" below) — matches the app's existing cred-select-list/-item look
+// (see AuthorizationField/HeaderValueSelect) instead of a native <select>.
+// Unlike those two, there's no text-input side: nothing here is ever typed,
+// it's purely "pick one of these to apply to every step."
+function BulkSelectDropdown({ placeholder, options, onPick, renderOption }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const wrapRef = useRef(null);
+  const listRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e) => {
+      if (
+        wrapRef.current && !wrapRef.current.contains(e.target)
+        && listRef.current && !listRef.current.contains(e.target)
+      ) setOpen(false);
+    };
+    // Closes on a page/ancestor scroll (the portal's position was computed
+    // for where the trigger was at open-time, so it'd otherwise drift out of
+    // place) — but NOT on scrolling inside the list itself, which is just
+    // the user paging through a long option list and shouldn't dismiss it.
+    const handleScroll = (e) => {
+      if (listRef.current && listRef.current.contains(e.target)) return;
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('resize', handleScroll);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('resize', handleScroll);
+    };
+  }, [open]);
+
+  const openList = () => {
+    if (!wrapRef.current) return;
+    const rect = wrapRef.current.getBoundingClientRect();
+    const width = Math.max(rect.width, 320);
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 12));
+    setPos({ top: rect.bottom + 4, left, width });
+    setOpen(true);
+  };
+
+  return (
+    <div ref={wrapRef} className="cred-select-combo" style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+      <button
+        type="button"
+        className="cred-select-combo-input"
+        style={{
+          textAlign: 'left', width: '100%', cursor: 'pointer', color: 'var(--text-muted)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+        }}
+        onClick={() => (open ? setOpen(false) : openList())}
+      >
+        <span>{placeholder}</span>
+        <ChevronIcon style={{ transform: 'rotate(90deg)', flexShrink: 0, color: 'var(--text-dim)' }} />
+      </button>
+      {open && pos && createPortal(
+        <div ref={listRef} className="cred-select-list" style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width }}>
+          {options.length === 0 && <div className="hint" style={{ padding: '8px 10px', fontSize: 12.5 }}>Nothing configured yet.</div>}
+          {options.map((opt, i) => (
+            <button type="button" key={i} className="cred-select-item" onClick={() => { setOpen(false); onPick(opt); }}>
+              <span className="cred-select-check"><CheckIcon style={{ visibility: 'hidden' }} /></span>
+              {renderOption(opt)}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
 function stepFromApi(s) {
   return {
     name: s.name,
@@ -370,6 +448,10 @@ export default function Flows() {
   };
   const [authCredentials, setAuthCredentials] = useState([]);
   const [defaultHeaders, setDefaultHeaders] = useState([]);
+  // Config > Default Headers entries for the "X-Token" key — offered in the
+  // "Set X-Token" bulk picker below so switching every step to a different
+  // test account doesn't mean hand-editing each step's headers individually.
+  const xTokenOptions = defaultHeaders.filter((h) => h.key.trim().toLowerCase() === 'x-token');
 
   const [editingFlow, setEditingFlow] = useState(null);
   const [viewingFlow, setViewingFlow] = useState(null);
@@ -1365,8 +1447,13 @@ export default function Flows() {
 
           {editingFlow && (
             <div className="card">
-              <div className="card-row">
-                <h4 style={{ margin: 0 }}>{editingFlow.id ? `Edit Flow: ${editingFlow.name}` : 'New Flow'}</h4>
+              <div className="toolbar" style={{ marginBottom: 8 }}>
+                <input
+                  placeholder="Flow name (optional)"
+                  value={editingFlow.name}
+                  onChange={(e) => setEditingFlow({ ...editingFlow, name: e.target.value })}
+                  style={{ flex: 1, minWidth: 0 }}
+                />
                 <button
                   className="btn-icon"
                   onClick={() => setEditingFlow(null)}
@@ -1376,17 +1463,11 @@ export default function Flows() {
                   <XIcon />
                 </button>
               </div>
-              <div className="toolbar" style={{ marginBottom: 4, flexWrap: 'nowrap' }}>
-                <input
-                  placeholder="Flow name (optional)"
-                  value={editingFlow.name}
-                  onChange={(e) => setEditingFlow({ ...editingFlow, name: e.target.value })}
-                  style={{ flex: 1, minWidth: 0 }}
-                />
+              <div className="toolbar" style={{ marginBottom: 4, flexWrap: 'wrap' }}>
                 <select
                   value={editingFlow.folder_id ?? ''}
                   onChange={(e) => setEditingFlow({ ...editingFlow, folder_id: e.target.value ? Number(e.target.value) : null })}
-                  style={{ flexShrink: 0 }}
+                  style={{ flex: 1, minWidth: 0 }}
                 >
                   <option value="">Select folder...</option>
                   {flattenFolders(folders).map((f) => <option key={f.id} value={f.id}>{folderOptionLabel(f)}</option>)}
@@ -1414,7 +1495,7 @@ export default function Flows() {
                     }
                     setBulkAuthCredentialId('');
                   }}
-                  style={{ flexShrink: 0 }}
+                  style={{ flex: 1, minWidth: 0 }}
                   title="Fills the Authorization of every step that doesn't have one set yet. Each step keeps that credential going forward — token refresh happens automatically whenever it's close to expiring, no flow-level setting needed."
                 >
                   <option value="">Select account</option>
@@ -1422,6 +1503,44 @@ export default function Flows() {
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>
+                <BulkSelectDropdown
+                  placeholder="Set X-Token"
+                  options={xTokenOptions}
+                  renderOption={(h) => (
+                    <>
+                      <span className="header-value-item-name">{h.label || 'X-Token'}</span>
+                      {h.environment_name && (
+                        <span className={`badge ${envBadgeClass(h.environment_name)} header-value-item-env`}>{h.environment_name}</span>
+                      )}
+                      <span className="badge neutral mono header-value-item-value" title={h.value}>{h.value}</span>
+                    </>
+                  )}
+                  onPick={async (h) => {
+                    const label = `${h.label || 'X-Token'}${h.environment_name ? ` (${h.environment_name})` : ''}`;
+                    const count = editingFlow.steps.length;
+                    // Unlike "Select account" above (which only fills steps
+                    // with no Authorization yet), this always wins: it adds
+                    // an X-Token header to steps that don't have one, and
+                    // overwrites the value on steps that already do — worth
+                    // an explicit confirm since it can silently clobber a
+                    // step's own X-Token otherwise.
+                    const ok = await confirm(
+                      `Set X-Token to "${label}" for all ${count} step${count === 1 ? '' : 's'}? This replaces any X-Token a step already has set.`
+                    );
+                    if (!ok) return;
+                    const steps = editingFlow.steps.map((step) => {
+                      const idx = step.headersRows.findIndex((r) => r.key.trim().toLowerCase() === 'x-token');
+                      if (idx === -1) {
+                        return { ...step, headersRows: [...step.headersRows, { key: 'X-Token', value: h.value, enabled: true }] };
+                      }
+                      const headersRows = [...step.headersRows];
+                      headersRows[idx] = { ...headersRows[idx], value: h.value, enabled: true };
+                      return { ...step, headersRows };
+                    });
+                    setEditingFlow({ ...editingFlow, steps });
+                    showToast(`Set X-Token to "${label}" for all ${steps.length} step${steps.length === 1 ? '' : 's'}.`);
+                  }}
+                />
                 <label style={{ flexShrink: 0, whiteSpace: 'nowrap', marginLeft: 'auto' }}>
                   <input
                     type="checkbox"

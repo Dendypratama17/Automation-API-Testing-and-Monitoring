@@ -1,16 +1,18 @@
 import React from 'react';
 
-const emptyExtractRow = () => ({ variable: '', path: '' });
+const emptyExtractRow = () => ({ variable: '', path: '', stripSymbols: false });
 
 export function arrayToExtractRows(extract) {
   if (!extract || !extract.length) return [];
-  return extract.map((e) => ({ variable: e.variable || '', path: e.path || '' }));
+  return extract.map((e) => ({ variable: e.variable || '', path: e.path || '', stripSymbols: e.strip_symbols === true }));
 }
 
 export function extractRowsToArray(rows) {
   const out = [];
-  for (const { variable, path } of rows) {
-    if (variable.trim() && path.trim()) out.push({ variable: variable.trim(), path: path.trim() });
+  for (const { variable, path, stripSymbols } of rows) {
+    if (variable.trim() && path.trim()) {
+      out.push({ variable: variable.trim(), path: path.trim(), ...(stripSymbols ? { strip_symbols: true } : {}) });
+    }
   }
   return out;
 }
@@ -44,6 +46,15 @@ export default function ExtractVariableEditor({ rows, onChange }) {
             className="mono"
             style={{ minWidth: 0 }}
           />
+          <label className="toolbar" style={{ gap: 4, flexShrink: 0, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={row.stripSymbols === true}
+              onChange={(e) => update(idx, 'stripSymbols', e.target.checked)}
+              title='Strip non-digit characters from the extracted value — e.g. "4.662.000" becomes "4662000". Useful when a formatted number (thousand separators) needs to be reused as a plain number in a later step.'
+            />
+            Strip symbols
+          </label>
           <button className="btn-quiet" onClick={() => removeRow(idx)}>✕</button>
         </div>
       ))}

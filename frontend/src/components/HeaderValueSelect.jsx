@@ -26,7 +26,14 @@ export default function HeaderValueSelect({ options, value, onChange, placeholde
         && listRef.current && !listRef.current.contains(e.target)
       ) setOpen(false);
     };
-    const handleScroll = () => setOpen(false);
+    // Closes on a page/ancestor scroll (the portal's position was computed
+    // for where the trigger was at open-time, so it'd otherwise drift out of
+    // place) — but NOT on scrolling inside the list itself, which is just
+    // the user paging through a long option list and shouldn't dismiss it.
+    const handleScroll = (e) => {
+      if (listRef.current && listRef.current.contains(e.target)) return;
+      setOpen(false);
+    };
     document.addEventListener('mousedown', handleClickOutside);
     window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('resize', handleScroll);
@@ -100,8 +107,8 @@ export default function HeaderValueSelect({ options, value, onChange, placeholde
           className="cred-select-list"
           style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width }}
         >
-          {options.map((opt) => (
-            <button type="button" key={opt.value} className="cred-select-item" onClick={() => pick(opt)}>
+          {options.map((opt, i) => (
+            <button type="button" key={`${opt.label}-${opt.environment_name}-${i}`} className="cred-select-item" onClick={() => pick(opt)}>
               <span className="cred-select-check">{value === opt.value && <CheckIcon />}</span>
               {renderOptionContent(opt)}
             </button>

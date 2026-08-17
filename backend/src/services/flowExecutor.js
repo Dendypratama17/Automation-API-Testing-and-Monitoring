@@ -203,8 +203,41 @@ function buildRequestBody(body, bodyType, headers) {
   return body;
 }
 
-function checkAssertions(assertions, response, responseTimeMs) {
-  return assertions.filter((assertion) => assertion.enabled !== false).map((assertion) => {
+// A small, safe subset — digits, +-*/ and whitespace only, never eval() —
+// so an assertion's expected value can be a simple derived expression like
+// "{{initial_quota}} + 2" (after {{}} resolution below) instead of only ever
+// a fixed literal. Returns undefined (leaving the resolved string as-is) for
+// anything that isn't purely this shape, e.g. a plain non-numeric string.
+function evalSimpleArithmetic(str) {
+  const trimmed = String(str).trim();
+  if (!/^-?\d+(\.\d+)?(\s*[+\-*/]\s*-?\d+(\.\d+)?)+$/.test(trimmed)) return undefined;
+  const tokens = trimmed.match(/-?\d+(\.\d+)?|[+\-*/]/g);
+  let result = parseFloat(tokens[0]);
+  for (let i = 1; i < tokens.length; i += 2) {
+    const num = parseFloat(tokens[i + 1]);
+    if (tokens[i] === '+') result += num;
+    else if (tokens[i] === '-') result -= num;
+    else if (tokens[i] === '*') result *= num;
+    else if (tokens[i] === '/') result /= num;
+  }
+  return result;
+}
+
+// `variables` is the same {{variable}}-substitution scope used for the
+// step's own url/headers/body (see resolveDeep) — passing it through here
+// lets an assertion's expected value reference something extracted from an
+// earlier step's response (e.g. "assert the ending balance is exactly
+// {{initial_quota}} + 2"), not just a fixed value typed in ahead of time.
+function checkAssertions(assertions, response, responseTimeMs, variables = {}) {
+  return assertions.filter((assertion) => assertion.enabled !== false).map((assertionRaw) => {
+    const assertion = { ...assertionRaw };
+    for (const field of ['expected', 'matchValue']) {
+      if (typeof assertion[field] === 'string' && assertion[field].includes('{{')) {
+        const resolved = resolveDeep(assertion[field], variables);
+        const evaluated = evalSimpleArithmetic(resolved);
+        assertion[field] = evaluated !== undefined ? evaluated : resolved;
+      }
+    }
     switch (assertion.type) {
       case 'status_code':
         return { ...assertion, passed: response.status === assertion.expected };
@@ -379,7 +412,7 @@ async function runStep(step, baseVariables, flow, authCredentials, previousSchem
 
     let assertionResults = null;
     if (step.assertions && step.assertions.length > 0) {
-      assertionResults = checkAssertions(step.assertions, response, responseTimeMs);
+      assertionResults = checkAssertions(step.assertions, response, responseTimeMs, variables);
     }
     // A response shape change (schemaDiffs) no longer downgrades an
     // otherwise-passing run — it's still recorded below for reference,
@@ -389,8 +422,14 @@ async function runStep(step, baseVariables, flow, authCredentials, previousSchem
       : (response.status < 400 ? 'PASS' : 'FAIL');
 
     for (const rule of step.extract || []) {
-      const value = getField(response.data, rule.path);
-      if (value !== undefined) extractedVariables[rule.variable] = value;
+      let value = getField(response.data, rule.path);
+      if (value !== undefined) {
+        // Strips a formatted number down to plain digits (e.g. "4.662.000"
+        // -> "4662000") so it can be reused as a numeric value in a later
+        // step, instead of carrying thousand-separator dots/commas along.
+        if (rule.strip_symbols && typeof value === 'string') value = value.replace(/[^0-9]/g, '');
+        extractedVariables[rule.variable] = value;
+      }
     }
 
     stepResult = {

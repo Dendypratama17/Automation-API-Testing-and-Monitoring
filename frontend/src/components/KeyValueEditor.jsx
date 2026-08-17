@@ -43,7 +43,15 @@ export default function KeyValueEditor({ rows, onChange, keyPlaceholder = 'Key',
       for (const h of headers) {
         const lower = h.key.trim().toLowerCase();
         if (!grouped[lower]) grouped[lower] = [];
-        if (!grouped[lower].some((o) => o.value === h.value)) {
+        // Dedupe on label+env+value, not value alone — two different named
+        // accounts (e.g. "Merchant Corporate (STG)" and "Privy Demo (PROD)")
+        // can legitimately share the same underlying token value, and both
+        // should still show up as distinct picks instead of the later one
+        // silently disappearing.
+        const isDuplicate = grouped[lower].some((o) => (
+          o.value === h.value && o.label === (h.label || null) && o.environment_name === (h.environment_name || null)
+        ));
+        if (!isDuplicate) {
           grouped[lower].push({ value: h.value, label: h.label || null, environment_name: h.environment_name || null });
         }
       }

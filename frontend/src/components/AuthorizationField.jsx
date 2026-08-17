@@ -35,7 +35,14 @@ export default function AuthorizationField({ credentials, credentialId, rawValue
         && listRef.current && !listRef.current.contains(e.target)
       ) setOpen(false);
     };
-    const handleScroll = () => setOpen(false);
+    // Closes on a page/ancestor scroll (the portal's position was computed
+    // for where the trigger was at open-time, so it'd otherwise drift out of
+    // place) — but NOT on scrolling inside the list itself, which is just
+    // the user paging through a long option list and shouldn't dismiss it.
+    const handleScroll = (e) => {
+      if (listRef.current && listRef.current.contains(e.target)) return;
+      setOpen(false);
+    };
     document.addEventListener('mousedown', handleClickOutside);
     window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('resize', handleScroll);

@@ -386,7 +386,7 @@ button.btn-danger-solid:hover { background: #f65f5f; border-color: #f65f5f; }
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 .cred-select-combo:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-input.cred-select-combo-input {
+.cred-select-combo-input {
   flex: 1;
   min-width: 0;
   background: transparent;
@@ -395,6 +395,7 @@ input.cred-select-combo-input {
   font-size: 13.5px;
   color: var(--text);
   outline: none;
+  font-family: inherit;
 }
 .cred-select-combo-toggle {
   flex-shrink: 0;
@@ -419,7 +420,7 @@ input.cred-select-combo-input {
    the whole column and waste space on every other row. */
 .header-value-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .header-value-item-env { flex-shrink: 0; }
-.header-value-item-value { flex-shrink: 0; width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-value-item-value { flex-shrink: 0; width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* A chip's own Options (⋮) trigger only appears on hover/focus — keeps a row
    of many small chips (e.g. Default Headers values) from looking cluttered
@@ -458,7 +459,7 @@ button.btn-icon {
    padding) and another is a plain <input> — flex rounds each row's flex-basis
    independently and the two can drift apart by a pixel or two. */
 .kv-row { display: grid; grid-template-columns: auto 1fr 1fr auto; align-items: center; gap: 8px; }
-.extract-row { display: grid; grid-template-columns: 1fr 1fr auto; align-items: center; gap: 8px; }
+.extract-row { display: grid; grid-template-columns: 1fr 1fr auto auto; align-items: center; gap: 8px; }
 /* Body (form-data) rows: checkbox | key | type select | value (text input or
    FilePicker) | remove — a fixed grid (not flex) so the value column lines up
    the same width whether that row holds a plain input or the FilePicker

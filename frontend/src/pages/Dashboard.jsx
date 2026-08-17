@@ -475,6 +475,7 @@ export default function Dashboard() {
             </>
           )}
           <select value={envFilter} onChange={(e) => setEnvFilter(e.target.value)}>
+            <option value="all">All Environments</option>
             {environments.map((env) => <option key={env.id} value={env.name}>{env.name}</option>)}
           </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
