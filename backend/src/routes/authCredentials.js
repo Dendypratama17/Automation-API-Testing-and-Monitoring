@@ -4,6 +4,7 @@ const pool = require('../db/pool');
 const catchAsync = require('../utils/catchAsync');
 const { encrypt, decrypt } = require('../utils/crypto');
 const { fetchWebLoginToken, primeTokenCache } = require('../services/webLogin');
+const { getLockState, recordFailedAttempt, clearAttempts } = require('../services/pinAttemptLimiter');
 
 // Password never leaves the server in any API response — the UI only ever
 // needs to know one exists (to render the masked dots), never its value.
@@ -80,11 +81,25 @@ router.put('/:id', catchAsync(async (req, res) => {
 
 // REVEAL the real password — gated behind a PIN (checked server-side too,
 // not just in the UI, so hitting this endpoint directly without going
-// through the "View password" prompt still requires it).
+// through the "View password" prompt still requires it). Also rate-limited
+// per credential id — a 3-digit PIN is only a meaningful gate if it can't
+// just be brute-forced (1000 combinations) in a few seconds.
 router.post('/:id/reveal-password', catchAsync(async (req, res) => {
   const { pin } = req.body;
-  if (pin !== '111') return res.status(403).json({ error: 'Incorrect PIN.' });
-  const result = await pool.query('SELECT password FROM auth_credentials WHERE id=$1', [req.params.id]);
+  const credId = req.params.id;
+
+  const lockState = getLockState(credId);
+  if (lockState.locked) {
+    return res.status(429).json({ error: `Too many incorrect PIN attempts. Try again in ${Math.ceil(lockState.retryAfterMs / 1000)}s.` });
+  }
+
+  if (pin !== '111') {
+    recordFailedAttempt(credId);
+    return res.status(403).json({ error: 'Incorrect PIN.' });
+  }
+  clearAttempts(credId);
+
+  const result = await pool.query('SELECT password FROM auth_credentials WHERE id=$1', [credId]);
   if (!result.rows[0]) return res.status(404).json({ error: 'Credential not found' });
   res.json({ password: decrypt(result.rows[0].password) });
 }));

@@ -96,8 +96,13 @@ export default function Authorization() {
     setError('');
     try {
       const payload = { ...form, environment_id: form.environment_id ? Number(form.environment_id) : null };
-      if (editingId) await updateAuthCredential(editingId, payload);
-      else {
+      if (editingId) {
+        await updateAuthCredential(editingId, payload);
+        // A previously-revealed password is now stale (whether or not this
+        // particular save changed it) — clear the cache so the row goes
+        // back to masked dots instead of silently showing the old value.
+        if (revealedPasswords[editingId] !== undefined) hidePassword(editingId);
+      } else {
         await createAuthCredential(payload);
         showToast(`Credential "${form.name}" added successfully.`);
       }
@@ -261,7 +266,17 @@ export default function Authorization() {
                           </button>
                         </span>
                       ) : pinPromptId === cred.id ? (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                        // Same drag-interference fix as the revealed-password span
+                        // below: the row is `draggable`, which otherwise hijacks
+                        // clicking/typing into this input. mousedown (not click) —
+                        // native drag starts on mousedown+move, before a click
+                        // handler would ever run.
+                        <span
+                          style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                          draggable={false}
+                          onDragStart={(e) => e.preventDefault()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                        >
                           {/* Padding trimmed to match the height of a .btn-icon button
                               (the default input padding is noticeably taller) — so this
                               row doesn't grow past its normal height and throw off the

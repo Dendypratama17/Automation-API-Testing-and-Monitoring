@@ -1,3 +1,18 @@
+// Flags real curl accepts that take NO value — anything else starting with
+// '-' that isn't one of the specially-handled cases below (-X, -H, -d/data*,
+// -F, -u, -b, --url) is assumed to take a value and has that value consumed
+// (see the loop below). Without this, an unrecognized value-taking flag
+// (e.g. -A/--user-agent, -e/--referer, -o/--output, -x/--proxy) leaves its
+// value token to fall through to the bare-token branch and get
+// misinterpreted as the URL — the exact bug -b/--cookie had before it got
+// its own case.
+const BOOLEAN_FLAGS = new Set([
+  '-k', '--insecure', '-L', '--location', '-s', '--silent', '-S', '--show-error',
+  '-v', '--verbose', '-i', '--include', '-I', '--head', '--compressed', '-g', '--globoff',
+  '-4', '--ipv4', '-6', '--ipv6', '-f', '--fail', '-N', '--no-buffer', '-n', '--netrc',
+  '-G', '--get', '-J', '--remote-header-name', '-O', '--remote-name',
+]);
+
 /**
  * Parse curl command string into structured endpoint definition.
  * Supports: -X/--request, -H/--header, -d/--data/--data-raw, -F/--form, URL detection.
@@ -50,17 +65,20 @@ function parseCurl(curlString) {
     } else if (t === '-u' || t === '--user') {
       i++; // skip basic auth value, not handled yet
     } else if (t === '-b' || t === '--cookie') {
-      // Without this, the cookie string (unclaimed by any recognized flag)
-      // would fall through to the bare-token branch below and get
-      // misinterpreted as the URL, corrupting path_template.
       headers['Cookie'] = tokens[++i];
+    } else if (t === '--url') {
+      url = tokens[++i];
+    } else if (t.startsWith('-') && t !== '-' && !BOOLEAN_FLAGS.has(t)) {
+      // An unrecognized flag that (per real curl) takes a value — consume
+      // and discard it so it never reaches the bare-token branch below.
+      i++;
     } else if (!t.startsWith('-') && t !== 'curl') {
       // Every recognized flag above consumes its own value via tokens[++i],
-      // and an unrecognized flag (e.g. --location) is simply skipped without
-      // ever reaching this branch (it still starts with '-') — so the one
-      // remaining bare token here is always the URL, exactly like real curl.
-      // It may have no scheme (e.g. a local `localhost:9191/decrypt`), which
-      // is normalized below rather than silently dropped.
+      // and a genuinely no-argument flag (BOOLEAN_FLAGS) is simply skipped
+      // without ever reaching this branch — so the one remaining bare token
+      // here is always the URL, exactly like real curl. It may have no
+      // scheme (e.g. a local `localhost:9191/decrypt`), which is normalized
+      // below rather than silently dropped.
       url = t;
     }
   }
@@ -80,6 +98,16 @@ function tokenize(str) {
 
   for (let i = 0; i < str.length; i++) {
     const c = str[i];
+    // Backslash-escape (outside single quotes, where POSIX shells treat
+    // backslash as fully literal) — consumes the next character as-is.
+    // Without this, `-d "{\"a\":1}"` (a common "copy as cURL" shape from
+    // Windows/cmd) has its escaped `\"` read as a real closing quote by the
+    // toggle logic below, silently mangling the JSON body.
+    if (c === '\\' && !inSingle && i + 1 < str.length) {
+      current += str[i + 1];
+      i++;
+      continue;
+    }
     if (c === "'" && !inDouble) {
       inSingle = !inSingle;
       continue;

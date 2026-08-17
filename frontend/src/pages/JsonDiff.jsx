@@ -37,7 +37,9 @@ export default function JsonDiff() {
   const [renaming, setRenaming] = useState(false);
   const [locked, setLocked] = useState(draft.locked || false);
   const [exportingId, setExportingId] = useState(null);
-  const [sharingId, setSharingId] = useState(null);
+  // A Set (not a single id) — sharing comparison #1 shouldn't have its
+  // in-flight state clobbered/cleared by a second, overlapping share of #2.
+  const [sharingIds, setSharingIds] = useState(() => new Set());
 
   const loadSavedList = () => getSavedJsonDiffs().then(setSavedList);
   useEffect(() => { loadSavedList(); }, []);
@@ -160,7 +162,7 @@ export default function JsonDiff() {
   };
 
   const handleShareToTelegram = async (id, name) => {
-    setSharingId(id);
+    setSharingIds((prev) => new Set(prev).add(id));
     try {
       const full = await getSavedJsonDiff(id);
       const { base64, filename } = getJsonDiffPdfBase64(full);
@@ -173,7 +175,11 @@ export default function JsonDiff() {
     } catch (err) {
       showToast(err.response?.data?.error || err.message, 'error');
     } finally {
-      setSharingId(null);
+      setSharingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -350,7 +356,7 @@ export default function JsonDiff() {
                   <button
                     className="btn-quiet"
                     onClick={(e) => { e.stopPropagation(); handleShareToTelegram(s.id, s.name); }}
-                    disabled={sharingId === s.id}
+                    disabled={sharingIds.has(s.id)}
                     title="Share to Telegram"
                   >
                     <SendIcon />

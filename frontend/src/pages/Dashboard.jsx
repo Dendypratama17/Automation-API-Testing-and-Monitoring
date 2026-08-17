@@ -402,7 +402,13 @@ export default function Dashboard() {
   // Upload then Share) — a flow run's steps show as separate rows in the
   // tables above, so this ties the selected one back to its siblings.
   useEffect(() => {
-    if (!selectedRow?.flow_run_id) { setRunSteps([]); setRunInfo(null); return; }
+    // Cleared synchronously up front (not just in the early-return branch
+    // below) — otherwise clicking a different row while the previous row's
+    // fetch is still in flight leaves stale steps/info visible (and
+    // exportable/shareable) under the new row's name until it resolves.
+    setRunSteps([]);
+    setRunInfo(null);
+    if (!selectedRow?.flow_run_id) return;
     let cancelled = false;
     getFlowRun(selectedRow.flow_run_id).then((run) => {
       if (cancelled) return;

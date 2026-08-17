@@ -79,7 +79,7 @@ export default function JsonPasteEditor({ value, onChange, diffLineSet, placehol
               key={i}
               className="json-paste-editor-line"
               style={{
-                backgroundColor: isDiff ? 'var(--fail-bg)' : undefined,
+                backgroundColor: isDiff ? 'var(--drift-bg)' : undefined,
                 backgroundImage: indentChars > 0
                   ? 'repeating-linear-gradient(to right, var(--border) 0, var(--border) 1px, transparent 1px, transparent 2ch)'
                   : undefined,

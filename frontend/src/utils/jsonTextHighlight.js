@@ -45,16 +45,32 @@ export function tokenizeJsonLine(line) {
 // Skipped for very large payloads (O(lines_a * lines_b) time/space).
 const MAX_LINES_FOR_DIFF = 2000;
 
+// A line with nothing but braces/brackets/commas (however indented) never
+// carries a value on its own — it's just where an object/array happens to
+// open or close. Flagging it as "different" only ever reflects indentation
+// noise from something else shifting depth, never an actual value change.
+function isStructuralOnly(trimmedLine) {
+  return /^[{}[\],]*$/.test(trimmedLine);
+}
+
 export function computeLineDiff(linesA, linesB) {
   if (linesA.length > MAX_LINES_FOR_DIFF || linesB.length > MAX_LINES_FOR_DIFF) {
     return { unmatchedA: new Set(), unmatchedB: new Set() };
   }
+  // Leading whitespace stripped, not the whole line trimmed — a line that
+  // only moved to a different indent depth (because something else nested
+  // above it changed) isn't a value difference and shouldn't light up on
+  // its own. Trailing content is left alone so a genuine difference that
+  // happens to sit at the end of the line (e.g. mid-edit/unterminated
+  // string content) still gets caught.
+  const trimmedA = linesA.map((l) => l.replace(/^\s+/, ''));
+  const trimmedB = linesB.map((l) => l.replace(/^\s+/, ''));
   const n = linesA.length;
   const m = linesB.length;
   const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
-      dp[i][j] = linesA[i] === linesB[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      dp[i][j] = trimmedA[i] === trimmedB[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
     }
   }
   const matchedA = new Set();
@@ -62,7 +78,7 @@ export function computeLineDiff(linesA, linesB) {
   let i = 0;
   let j = 0;
   while (i < n && j < m) {
-    if (linesA[i] === linesB[j]) {
+    if (trimmedA[i] === trimmedB[j]) {
       matchedA.add(i);
       matchedB.add(j);
       i++;
@@ -74,8 +90,12 @@ export function computeLineDiff(linesA, linesB) {
     }
   }
   const unmatchedA = new Set();
-  for (let k = 0; k < n; k++) if (!matchedA.has(k) && linesA[k].trim() !== '') unmatchedA.add(k);
+  for (let k = 0; k < n; k++) {
+    if (!matchedA.has(k) && trimmedA[k] !== '' && !isStructuralOnly(trimmedA[k])) unmatchedA.add(k);
+  }
   const unmatchedB = new Set();
-  for (let k = 0; k < m; k++) if (!matchedB.has(k) && linesB[k].trim() !== '') unmatchedB.add(k);
+  for (let k = 0; k < m; k++) {
+    if (!matchedB.has(k) && trimmedB[k] !== '' && !isStructuralOnly(trimmedB[k])) unmatchedB.add(k);
+  }
   return { unmatchedA, unmatchedB };
 }

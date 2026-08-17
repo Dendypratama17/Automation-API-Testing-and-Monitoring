@@ -85,6 +85,42 @@ export default function DefaultHeaders() {
 
   const groups = groupByKey(headers);
 
+  // A value's chip (name/value + its Options menu) — shared by both the
+  // env-grouped X-Token display and the plain flat list every other key uses.
+  const renderValueChip = (v) => (
+    <div
+      key={v.id}
+      className="value-chip"
+      style={{
+        display: 'flex', alignItems: 'center', gap: 4,
+        background: editingId === v.id ? 'var(--surface-2)' : 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 8, padding: '5px 4px 5px 8px',
+      }}
+    >
+      <span style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 6, maxWidth: 320 }}>
+        {v.label && (
+          <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{v.label}</span>
+        )}
+        <span
+          className="mono hint"
+          title={v.value}
+          style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
+          {v.value}
+        </span>
+      </span>
+      <span className="value-chip-options">
+        <OptionsMenu
+          items={[
+            { label: 'Edit', icon: <EditIcon />, onClick: () => startEdit(v) },
+            { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(v), danger: true },
+          ]}
+        />
+      </span>
+    </div>
+  );
+
   // Reordering only happens at the key level — dragging a key's row moves
   // ALL of its values together as one block, keeping their own relative
   // order. Persists as the flattened id order, optimistic with reload-on-failure.
@@ -200,44 +236,22 @@ export default function DefaultHeaders() {
                 <td className="mono" style={{ verticalAlign: 'top', paddingTop: 14 }}>{group.key}</td>
                 <td>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '6px 0' }}>
-                    {groupByEnv(group.values, (v) => v.environment_name).map((envGroup) => (
-                      <div key={envGroup.key} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                        <span className="badge neutral" style={{ flexShrink: 0 }}>{envGroup.key}</span>
-                        {envGroup.items.map((v) => (
-                          <div
-                            key={v.id}
-                            className="value-chip"
-                            style={{
-                              display: 'flex', alignItems: 'center', gap: 4,
-                              background: editingId === v.id ? 'var(--surface-2)' : 'var(--surface)',
-                              border: '1px solid var(--border)',
-                              borderRadius: 8, padding: '5px 4px 5px 8px',
-                            }}
-                          >
-                            <span style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 6, maxWidth: 320 }}>
-                              {v.label && (
-                                <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{v.label}</span>
-                              )}
-                              <span
-                                className="mono hint"
-                                title={v.value}
-                                style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                              >
-                                {v.value}
-                              </span>
-                            </span>
-                            <span className="value-chip-options">
-                              <OptionsMenu
-                                items={[
-                                  { label: 'Edit', icon: <EditIcon />, onClick: () => startEdit(v) },
-                                  { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(v), danger: true },
-                                ]}
-                              />
-                            </span>
-                          </div>
-                        ))}
+                    {/* Only X-Token's values are meaningfully per-environment (one per
+                        test account) — grouping every other key too just adds a "No
+                        Environment" section nobody needs for e.g. X-Platform-Name's
+                        plain Web/iOS/Android choices. */}
+                    {group.key.trim().toLowerCase() === 'x-token' ? (
+                      groupByEnv(group.values, (v) => v.environment_name).map((envGroup) => (
+                        <div key={envGroup.key} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                          <span className="badge neutral" style={{ flexShrink: 0 }}>{envGroup.key}</span>
+                          {envGroup.items.map(renderValueChip)}
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                        {group.values.map(renderValueChip)}
                       </div>
-                    ))}
+                    )}
 
                     {addingValueForKey === group.key ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start' }}>

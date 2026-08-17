@@ -235,6 +235,11 @@ function formatRecoveryMessage(flowRun, previousStatus) {
   ].join('\n');
 }
 
+async function sendPdfReport(flowRun) {
+  const { buffer, filename } = buildRunResultPdf(flowRun);
+  await sendTelegramDocument(buffer, filename, `${flowRun.status}: ${flowRun.flow_name}`);
+}
+
 /**
  * Notify about a flow run result. Rules:
  *  - status is bad (FAIL/ERROR/SCHEMA_DRIFT) → always alert, even if the
@@ -274,15 +279,14 @@ async function notifyFlowIfNeeded(flowRun, previousStatus = null) {
 
     // A failed/erroring run also gets its full PDF report attached (to the
     // doc bot/topic, same as a manual "Share to Telegram") — not just the
-    // short text alert above. Kept in its own try/catch so a PDF/Telegram
-    // hiccup here never blocks or fails the text alert already sent.
+    // short text alert above. Fired without awaiting it (own try/catch
+    // inside) — notifyFlowIfNeeded is itself awaited by the flow-run request
+    // (and the scheduler loop), so awaiting a second Telegram round-trip
+    // here would add its full network latency to every failing run.
     if (isBad) {
-      try {
-        const { buffer, filename } = buildRunResultPdf(flowRun);
-        await sendTelegramDocument(buffer, filename, `${flowRun.status}: ${flowRun.flow_name}`);
-      } catch (err) {
+      sendPdfReport(flowRun).catch((err) => {
         console.error('[telegramNotifier] failed to send PDF report:', err.message);
-      }
+      });
     }
   }
 

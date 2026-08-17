@@ -228,6 +228,21 @@ function evalSimpleArithmetic(str) {
 // lets an assertion's expected value reference something extracted from an
 // earlier step's response (e.g. "assert the ending balance is exactly
 // {{initial_quota}} + 2"), not just a fixed value typed in ahead of time.
+// A bare {{variable}} reference (no arithmetic operator) resolves to a
+// plain string via resolveDeep even when the underlying extracted value was
+// really a number/boolean — coerce it back for a strict-equality assertion
+// (field_equals and friends) to compare correctly against a JSON field that
+// really is a number/boolean, e.g. {{initial_quota}} alone (no "+ N") should
+// still match a numeric `quota` field. Left as a string if it doesn't
+// unambiguously look like a number/boolean/null (e.g. a UUID, a plain label).
+function coercePrimitive(str) {
+  if (str === 'true') return true;
+  if (str === 'false') return false;
+  if (str === 'null') return null;
+  if (str.trim() !== '' && !Number.isNaN(Number(str))) return Number(str);
+  return str;
+}
+
 function checkAssertions(assertions, response, responseTimeMs, variables = {}) {
   return assertions.filter((assertion) => assertion.enabled !== false).map((assertionRaw) => {
     const assertion = { ...assertionRaw };
@@ -235,7 +250,7 @@ function checkAssertions(assertions, response, responseTimeMs, variables = {}) {
       if (typeof assertion[field] === 'string' && assertion[field].includes('{{')) {
         const resolved = resolveDeep(assertion[field], variables);
         const evaluated = evalSimpleArithmetic(resolved);
-        assertion[field] = evaluated !== undefined ? evaluated : resolved;
+        assertion[field] = evaluated !== undefined ? evaluated : coercePrimitive(resolved);
       }
     }
     switch (assertion.type) {

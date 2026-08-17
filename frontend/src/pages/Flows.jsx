@@ -855,31 +855,36 @@ export default function Flows() {
     setCurlPasteLoading(true);
     try {
       const parsed = await parseCurlForStep(curlPasteText);
-      const steps = [...editingFlow.steps];
       const authHeaderKey = Object.keys(parsed.headers || {}).find((k) => k.toLowerCase() === 'authorization');
       const hasAuthHeader = authHeaderKey && String(parsed.headers[authHeaderKey] || '').trim();
-
-      const hasStatusCodeAssertion = steps[idx].assertionsRows.some((r) => r.type === 'status_code' || r.type === 'status_code_in');
-      const assertionsRows = !hasStatusCodeAssertion
-        ? [{ ...emptyAssertionRow(), type: 'status_code_in', expected: '200,201' }, ...steps[idx].assertionsRows]
-        : steps[idx].assertionsRows;
-
-      const authCredentialId = hasAuthHeader ? '' : steps[idx].authCredentialId;
-
       const bodyIsObject = parsed.body && typeof parsed.body === 'object';
-      steps[idx] = {
-        ...steps[idx],
-        endpoint_id: '',
-        method: parsed.method,
-        url_template: parsed.url_template,
-        headersRows: objectToRows(parsed.headers),
-        bodyType: parsed.is_multipart ? 'form-data' : 'json',
-        bodyText: parsed.is_multipart ? '' : (bodyIsObject ? JSON.stringify(parsed.body, null, 2) : (parsed.body || '')),
-        bodyRows: parsed.is_multipart ? objectToFormRows(parsed.body) : [emptyFormRow()],
-        assertionsRows,
-        authCredentialId,
-      };
-      setEditingFlow({ ...editingFlow, steps });
+
+      // Functional update — reads the LATEST editingFlow at apply-time, not
+      // whatever was captured in this closure when the parse started. Without
+      // this, any edit made elsewhere in the form while the parse request was
+      // in flight (rename a step, add/delete one, toggle stop_on_failure)
+      // gets silently reverted the moment this resolves.
+      setEditingFlow((prev) => {
+        const steps = [...prev.steps];
+        const hasStatusCodeAssertion = steps[idx].assertionsRows.some((r) => r.type === 'status_code' || r.type === 'status_code_in');
+        const assertionsRows = !hasStatusCodeAssertion
+          ? [{ ...emptyAssertionRow(), type: 'status_code_in', expected: '200,201' }, ...steps[idx].assertionsRows]
+          : steps[idx].assertionsRows;
+        const authCredentialId = hasAuthHeader ? '' : steps[idx].authCredentialId;
+        steps[idx] = {
+          ...steps[idx],
+          endpoint_id: '',
+          method: parsed.method,
+          url_template: parsed.url_template,
+          headersRows: objectToRows(parsed.headers),
+          bodyType: parsed.is_multipart ? 'form-data' : 'json',
+          bodyText: parsed.is_multipart ? '' : (bodyIsObject ? JSON.stringify(parsed.body, null, 2) : (parsed.body || '')),
+          bodyRows: parsed.is_multipart ? objectToFormRows(parsed.body) : [emptyFormRow()],
+          assertionsRows,
+          authCredentialId,
+        };
+        return { ...prev, steps };
+      });
       setCurlPasteIdx(null);
       setCurlPasteText('');
     } catch (err) {

@@ -227,27 +227,31 @@ export default function Schedules() {
       if (!ok) return;
     }
 
-    if (editingScheduleId) {
-      const existing = schedules.find((s) => s.id === editingScheduleId);
-      await updateSchedule(editingScheduleId, {
-        name: form.name,
-        cron_expression: form.cron_expression,
-        flow_id: Number(form.flow_id),
-        environment_id: Number(form.environment_id),
-        is_active: existing ? existing.is_active : true,
-      });
-      showToast(`Schedule "${form.name}" updated successfully.`);
-    } else {
-      await createSchedule({
-        ...form,
-        flow_id: Number(form.flow_id),
-        environment_id: Number(form.environment_id),
-        duration_minutes: form.duration_minutes ? Number(form.duration_minutes) : null,
-      });
-      showToast(`Schedule "${form.name}" created successfully.`);
+    try {
+      if (editingScheduleId) {
+        const existing = schedules.find((s) => s.id === editingScheduleId);
+        await updateSchedule(editingScheduleId, {
+          name: form.name,
+          cron_expression: form.cron_expression,
+          flow_id: Number(form.flow_id),
+          environment_id: Number(form.environment_id),
+          is_active: existing ? existing.is_active : true,
+        });
+        showToast(`Schedule "${form.name}" updated successfully.`);
+      } else {
+        await createSchedule({
+          ...form,
+          flow_id: Number(form.flow_id),
+          environment_id: Number(form.environment_id),
+          duration_minutes: form.duration_minutes ? Number(form.duration_minutes) : null,
+        });
+        showToast(`Schedule "${form.name}" created successfully.`);
+      }
+      resetForm();
+      load();
+    } catch (err) {
+      showToast(err.response?.data?.error || err.message, 'error');
     }
-    resetForm();
-    load();
   };
 
   const handleEditSchedule = (s) => {
