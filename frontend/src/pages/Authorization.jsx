@@ -240,11 +240,33 @@ export default function Authorization() {
                     <td className="hint" style={{ cursor: 'grab' }} title="Drag to reorder">
                       <GripIcon />
                     </td>
-                    <td>{cred.name}</td>
+                    <td>
+                      <span
+                        draggable={false}
+                        onDragStart={(e) => e.preventDefault()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        style={{ userSelect: 'text', cursor: 'text' }}
+                      >
+                        {cred.name}
+                      </span>
+                    </td>
                     <td>
                       <span className="badge neutral">{cred.type === 'web_login' ? 'Web Login' : 'Basic Auth'}</span>
                     </td>
-                    <td className="mono">{cred.username}</td>
+                    <td className="mono">
+                      {/* Same drag-interference fix as the password column below —
+                          the row is `draggable`, which otherwise hijacks a
+                          click-drag here into a row-drag instead of a normal
+                          text selection, making the username uncopyable. */}
+                      <span
+                        draggable={false}
+                        onDragStart={(e) => e.preventDefault()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        style={{ userSelect: 'text', cursor: 'text' }}
+                      >
+                        {cred.username}
+                      </span>
+                    </td>
                     <td className="mono">
                       {revealedPasswords[cred.id] !== undefined ? (
                         <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
