@@ -51,7 +51,7 @@ export default function JsonDiff() {
   // Quick raw-line highlight inside the paste boxes themselves — live as you
   // type/paste, independent of the structural (ignore-paths-aware) diff
   // below.
-  const { unmatchedA, unmatchedB } = useMemo(
+  const { unmatchedA, unmatchedB, missingA, missingB } = useMemo(
     () => computeLineDiff(jsonAText.split('\n'), jsonBText.split('\n')),
     [jsonAText, jsonBText]
   );
@@ -253,6 +253,7 @@ export default function JsonDiff() {
               value={jsonAText}
               onChange={setJsonAText}
               diffLineSet={unmatchedA}
+              missingLineSet={missingA}
               placeholder="Paste the first JSON here..."
               height={600}
               readOnly={locked}
@@ -266,6 +267,7 @@ export default function JsonDiff() {
               value={jsonBText}
               onChange={setJsonBText}
               diffLineSet={unmatchedB}
+              missingLineSet={missingB}
               placeholder="Paste the second JSON here..."
               height={600}
               readOnly={locked}
@@ -280,19 +282,20 @@ export default function JsonDiff() {
             <span className="field-label" style={{ margin: 0 }}>
               {diffs.length === 0 ? 'No differences' : `${diffs.length} difference${diffs.length === 1 ? '' : 's'}`}
             </span>
-            {diffs.length > 0 && (
-              <div className="toolbar">
-                <input
-                  placeholder="Name this comparison (optional)"
-                  value={saveName}
-                  onChange={(e) => setSaveName(e.target.value)}
-                  style={{ width: 220 }}
-                />
-                <button className="btn-primary" onClick={handleSave} disabled={saving}>
-                  {saving ? 'Saving...' : 'Save'}
-                </button>
-              </div>
-            )}
+            {/* Shown regardless of whether any differences were found — a
+                confirmed "these two are identical" is still worth saving,
+                not just an actual diff. */}
+            <div className="toolbar">
+              <input
+                placeholder="Name this comparison (optional)"
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+                style={{ width: 220 }}
+              />
+              <button className="btn-primary" onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
           </div>
           <div style={{ marginTop: 10 }}>
             <JsonDiffView diffs={diffs} />

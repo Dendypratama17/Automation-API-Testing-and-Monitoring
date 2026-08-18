@@ -53,9 +53,42 @@ function isStructuralOnly(trimmedLine) {
   return /^[{}[\],]*$/.test(trimmedLine);
 }
 
+// A leading `"key":` on a line, if it has one (array elements and bare
+// values don't) — same "quoted string immediately followed by a colon"
+// convention as tokenizeJsonLine's key/string distinction.
+const LEADING_KEY_RE = /^"((?:\\.|[^"\\])*)"\s*:/;
+function extractKey(trimmedLine) {
+  const m = LEADING_KEY_RE.exec(trimmedLine);
+  return m ? m[1] : null;
+}
+
+// Full dotted path for every key line (e.g. "customer.name"), not just its
+// bare local key — matching on the bare key alone means an unrelated field
+// that happens to share the same name elsewhere in the document (very
+// common: "id", "name", "status", "amount"...) gets treated as "the same
+// field exists over there", masking a genuinely missing nested field as a
+// same-key value change instead. Tracked via an indent-depth stack, since
+// that's the only structure available from raw, possibly-invalid-JSON text.
+function buildPaths(lines) {
+  const paths = new Array(lines.length).fill(null);
+  const stack = []; // { indent, key }
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const indentChars = line.match(/^\s*/)[0].length;
+    const trimmed = line.slice(indentChars);
+    while (stack.length && stack[stack.length - 1].indent >= indentChars) stack.pop();
+    const key = extractKey(trimmed);
+    if (key !== null) {
+      paths[i] = [...stack.map((s) => s.key), key].join('.');
+      stack.push({ indent: indentChars, key });
+    }
+  }
+  return paths;
+}
+
 export function computeLineDiff(linesA, linesB) {
   if (linesA.length > MAX_LINES_FOR_DIFF || linesB.length > MAX_LINES_FOR_DIFF) {
-    return { unmatchedA: new Set(), unmatchedB: new Set() };
+    return { unmatchedA: new Set(), unmatchedB: new Set(), missingA: new Set(), missingB: new Set() };
   }
   // Leading whitespace stripped, not the whole line trimmed — a line that
   // only moved to a different indent depth (because something else nested
@@ -89,13 +122,30 @@ export function computeLineDiff(linesA, linesB) {
       j++;
     }
   }
+  // Full paths present anywhere on the OTHER side — lets an unmatched "key":
+  // value line be told apart as either the same field with a different
+  // value (unmatched*) or a field that doesn't exist over there at all
+  // (missing*), instead of highlighting both identically.
+  const pathsA = buildPaths(linesA);
+  const pathsB = buildPaths(linesB);
+  const pathSetA = new Set(pathsA.filter((p) => p !== null));
+  const pathSetB = new Set(pathsB.filter((p) => p !== null));
+
   const unmatchedA = new Set();
+  const missingA = new Set();
   for (let k = 0; k < n; k++) {
-    if (!matchedA.has(k) && trimmedA[k] !== '' && !isStructuralOnly(trimmedA[k])) unmatchedA.add(k);
+    if (matchedA.has(k) || trimmedA[k] === '' || isStructuralOnly(trimmedA[k])) continue;
+    const path = pathsA[k];
+    if (path !== null && !pathSetB.has(path)) missingA.add(k);
+    else unmatchedA.add(k);
   }
   const unmatchedB = new Set();
+  const missingB = new Set();
   for (let k = 0; k < m; k++) {
-    if (!matchedB.has(k) && trimmedB[k] !== '' && !isStructuralOnly(trimmedB[k])) unmatchedB.add(k);
+    if (matchedB.has(k) || trimmedB[k] === '' || isStructuralOnly(trimmedB[k])) continue;
+    const path = pathsB[k];
+    if (path !== null && !pathSetA.has(path)) missingB.add(k);
+    else unmatchedB.add(k);
   }
-  return { unmatchedA, unmatchedB };
+  return { unmatchedA, unmatchedB, missingA, missingB };
 }

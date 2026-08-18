@@ -20,7 +20,7 @@ const TOKEN_COLOR = {
 // caret always lines up with the visible colored character underneath it —
 // see utils/jsonTextHighlight.js for why the overlay tokenizes the raw text
 // directly instead of re-serializing a parsed value.
-export default function JsonPasteEditor({ value, onChange, diffLineSet, placeholder, height = 420, readOnly = false }) {
+export default function JsonPasteEditor({ value, onChange, diffLineSet, missingLineSet, placeholder, height = 420, readOnly = false }) {
   const preRef = useRef(null);
   const showToast = useToast();
   const lines = value.split('\n');
@@ -73,13 +73,20 @@ export default function JsonPasteEditor({ value, onChange, diffLineSet, placehol
       <pre ref={preRef} className="json-paste-editor-highlight mono" aria-hidden="true">
         {lines.map((line, i) => {
           const indentChars = line.match(/^ */)[0].length;
-          const isDiff = diffLineSet?.has(i);
+          const isMissing = missingLineSet?.has(i);
+          const isDiff = !isMissing && diffLineSet?.has(i);
           return (
             <div
               key={i}
               className="json-paste-editor-line"
               style={{
-                backgroundColor: isDiff ? 'var(--drift-bg)' : undefined,
+                // Different background for "this key doesn't exist on the
+                // other side at all" (neutral) vs. "same key, different
+                // value" (amber) — otherwise both look identical. A plain
+                // var(--surface-3) is barely distinguishable from the
+                // editor's own var(--surface-2) background (too close in
+                // tone), so this uses a translucent slate-gray wash instead.
+                backgroundColor: isMissing ? 'rgba(151, 160, 181, 0.28)' : isDiff ? 'var(--drift-bg)' : undefined,
                 backgroundImage: indentChars > 0
                   ? 'repeating-linear-gradient(to right, var(--border) 0, var(--border) 1px, transparent 1px, transparent 2ch)'
                   : undefined,
