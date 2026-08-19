@@ -520,9 +520,9 @@ export default function Flows() {
   const [running, setRunning] = useState(false);
   const [runningFlowId, setRunningFlowId] = useState(null);
   const [runningToken, setRunningToken] = useState(null);
-  // Batch Run shares runningToken (for live-progress polling) but isn't
-  // individually cancellable per-flow — this just hides the Cancel button
-  // rather than showing one that would silently do nothing.
+  // Batch Run shares runningToken with every flow in the batch — for
+  // live-progress polling, and (see handleCancelRun) cancellation too. This
+  // just distinguishes the "Running…" label/steps grouping from a single run.
   const [runningIsBatch, setRunningIsBatch] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [runningStepId, setRunningStepId] = useState(null);
@@ -1202,9 +1202,9 @@ export default function Flows() {
     setEditingFlow(null);
     setViewingFlow(null);
     setRunning(true);
-    // Reused purely so the same live-progress polling effect (keyed off
-    // runningToken) picks this up too — see runningIsBatch for why Cancel
-    // stays hidden for this case.
+    // Same token drives live-progress polling (keyed off runningToken) and,
+    // via handleCancelRun below, cancellation — the backend now checks it at
+    // each flow boundary in the batch, not just mid-flow.
     const runToken = crypto.randomUUID();
     setRunningToken(runToken);
     setRunningIsBatch(true);
@@ -2001,13 +2001,15 @@ export default function Flows() {
                   {totalSteps > 0 && (
                     <span className="hint">{totalSteps} step{totalSteps === 1 ? '' : 's'} done so far</span>
                   )}
-                  {runningToken && !runningIsBatch && (
+                  {runningToken && (
                     <button
                       className="btn-quiet"
                       style={{ marginLeft: 'auto' }}
                       disabled={cancelling}
                       onClick={handleCancelRun}
-                      title="Stops the run at the next step boundary — whatever already completed is kept."
+                      title={runningIsBatch
+                        ? "Stops the batch at the next flow boundary — whichever flow is currently running finishes its own current step batch first, and flows already completed are kept."
+                        : 'Stops the run at the next step boundary — whatever already completed is kept.'}
                     >
                       Cancel
                     </button>

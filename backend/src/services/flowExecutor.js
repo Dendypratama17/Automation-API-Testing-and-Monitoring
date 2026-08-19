@@ -541,11 +541,11 @@ function groupIntoBatches(steps) {
  * run together as a batch (see routes/flows.js's /batch-run). The final
  * variables object is returned so the batch runner can pass it on again.
  */
-// progressToken defaults to runToken (a plain manual/scheduled run tracks
-// progress under the same token it's cancelled by) but a Batch Run passes
-// them separately: runToken stays null per flow (batch runs aren't
-// individually cancellable, unchanged from before), while progressToken is
-// the one shared token the whole batch's steps are tracked under.
+// progressToken defaults to runToken — a plain manual/scheduled run tracks
+// progress under the same token it's cancelled by, and a Batch Run now
+// reuses that same one token across every flow in the batch too (see
+// routes/flows.js's /batch-run), so a single Cancel stops the whole batch,
+// not just whichever flow happens to be running at the time.
 async function executeFlow(flow, steps, environment, previousSchemas = {}, authCredentials = {}, initialVariables = {}, runToken = null, progressToken = runToken) {
   let variables = { base_url: environment.base_url, ...(environment.variables || {}), ...initialVariables };
   const stepResults = [];

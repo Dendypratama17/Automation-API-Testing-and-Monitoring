@@ -4,7 +4,7 @@ const pool = require('../db/pool');
 const catchAsync = require('../utils/catchAsync');
 const { runFlowAndPersist } = require('../services/flowRunner');
 const { parseCurl, toPathTemplate } = require('../services/curlParser');
-const { markCancelled } = require('../services/runCancellation');
+const { markCancelled, isCancelled } = require('../services/runCancellation');
 const { initProgress, clearProgress, getProgress } = require('../services/runProgress');
 
 async function replaceSteps(client, flowId, steps) {
@@ -358,16 +358,20 @@ router.post('/batch-run', catchAsync(async (req, res) => {
     });
   }
 
-  // One shared progress token for the whole batch — each flow below gets its
-  // own segment (see runProgress.js) under this same token, polled via
-  // GET /runs/:runToken/progress same as a single run. Each flow's own
-  // runToken (cancellation) is deliberately left null — a Batch Run isn't
-  // individually cancellable per-flow today, unchanged from before this.
+  // One shared token for the whole batch — used for BOTH progress (each flow
+  // below gets its own segment under it, polled via GET /runs/:runToken/progress
+  // same as a single run) and cancellation. runFlowAndPersist clears the token
+  // from the cancelledTokens set once each flow finishes (it's written to be
+  // per-run), but that's harmless here: a Cancel click re-adds it regardless
+  // of timing, and the explicit check at the top of the loop below catches it
+  // at the next flow boundary even if it landed in the gap between two flows.
   initProgress(run_token);
   const results = [];
   let carryVariables = {};
   try {
     for (const flowId of flow_ids) {
+      if (isCancelled(run_token)) break;
+
       const flowResult = await pool.query('SELECT * FROM flows WHERE id=$1', [flowId]);
       const flow = flowResult.rows[0];
       if (!flow) {
@@ -382,9 +386,10 @@ router.post('/batch-run', catchAsync(async (req, res) => {
         continue;
       }
 
-      const result = await runFlowAndPersist(flow, stepsToRun, environment, triggered_by, null, carryVariables, null, run_token);
+      const result = await runFlowAndPersist(flow, stepsToRun, environment, triggered_by, null, carryVariables, run_token);
       carryVariables = result.variables; // hand off to the next flow in the batch
       results.push({ flow_id: flow.id, flow_name: flow.name, flow_run: result.flow_run, steps: result.steps });
+      if (result.flow_run.status === 'CANCELLED') break;
     }
   } finally {
     clearProgress(run_token);
