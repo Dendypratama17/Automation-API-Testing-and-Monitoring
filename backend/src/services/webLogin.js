@@ -106,6 +106,14 @@ const RETRY_DELAY_MS = 2000;
 // just await the same one instead of starting their own.
 const inFlightLogins = new Map();
 
+// Bumped by invalidateTokenCache — lets a login that was ALREADY in flight
+// when a credential got edited notice, once it finishes, that its result is
+// for a now-stale username/password and skip caching it. Without this, an
+// edit landing mid-login would still get silently overwritten a moment
+// later when that in-flight login completes and caches its (pre-edit)
+// result — exactly the staleness invalidateTokenCache exists to prevent.
+const cacheGeneration = new Map();
+
 async function getWebLoginToken(cred) {
   const cached = tokenCache.get(cred.id);
   if (cached && cached.expiresAt - Date.now() > REFRESH_MARGIN_MS) {
@@ -115,13 +123,16 @@ async function getWebLoginToken(cred) {
   const inFlight = inFlightLogins.get(cred.id);
   if (inFlight) return inFlight;
 
+  const generationAtStart = cacheGeneration.get(cred.id) || 0;
   const loginPromise = (async () => {
     let lastErr;
     for (let attempt = 1; attempt <= MAX_LOGIN_ATTEMPTS; attempt++) {
       try {
         const { token, expires } = await fetchWebLoginToken(cred);
-        const expiresAt = expires ? Date.parse(expires) : NaN;
-        tokenCache.set(cred.id, { token, expiresAt: Number.isNaN(expiresAt) ? Date.now() + 10 * 60 * 1000 : expiresAt });
+        if ((cacheGeneration.get(cred.id) || 0) === generationAtStart) {
+          const expiresAt = expires ? Date.parse(expires) : NaN;
+          tokenCache.set(cred.id, { token, expiresAt: Number.isNaN(expiresAt) ? Date.now() + 10 * 60 * 1000 : expiresAt });
+        }
         return token;
       } catch (err) {
         lastErr = err;
@@ -158,6 +169,7 @@ function primeTokenCache(credentialId, token, expires) {
 // wrong account/page) until it happens to near-expire on its own.
 function invalidateTokenCache(credentialId) {
   tokenCache.delete(credentialId);
+  cacheGeneration.set(credentialId, (cacheGeneration.get(credentialId) || 0) + 1);
 }
 
 module.exports = { fetchWebLoginToken, getWebLoginToken, primeTokenCache, invalidateTokenCache };
