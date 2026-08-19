@@ -229,7 +229,10 @@ button.btn-ready {
   isolation: isolate;
   animation: btn-ready-glow 1.8s ease-in-out infinite;
 }
-button.btn-success.btn-ready { --btn-ready-glow: rgba(52, 211, 153, 0.55); }
+/* Run Selected keeps only the moving light sweep (::after, untouched below)
+   — the pulsing glow reads as too "blinking" against a solid green fill, so
+   it's turned off here instead of just re-colored. */
+button.btn-success.btn-ready { animation: none; }
 button.btn-ready::after {
   content: '';
   position: absolute;
@@ -250,8 +253,8 @@ button.btn-ready::after {
   50% { box-shadow: 0 0 14px 4px var(--btn-ready-glow); }
 }
 
-button.btn-success { background: var(--pass); border-color: var(--pass); color: #06281d; }
-button.btn-success:hover { background: #3ddba1; border-color: #3ddba1; }
+button.btn-success { background: #1f8f68; border-color: #1f8f68; color: #eafff5; }
+button.btn-success:hover { background: #24a479; border-color: #24a479; }
 button.btn-success:disabled { opacity: 0.5; cursor: not-allowed; }
 
 button.btn-danger { color: var(--fail); }
