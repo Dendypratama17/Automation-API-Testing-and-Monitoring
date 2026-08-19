@@ -24,6 +24,7 @@ import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
 import { exportRunResultToPdf, getRunResultPdfBase64, exportBatchRunResultToPdf, getBatchRunResultPdfBase64 } from '../utils/exportRunResultPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
 import { loadSelectedFolder, saveSelectedFolder, hasStoredFolder } from '../utils/persistedFolder.js';
+import ScrollToTopButton from '../components/ScrollToTopButton.jsx';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const BODY_METHODS = ['POST', 'PUT'];
@@ -2174,6 +2175,7 @@ export default function Flows() {
           )}
         </div>
       </div>
+      <ScrollToTopButton active={!!(runResult || batchRunResult)} />
     </div>
   );
 }
