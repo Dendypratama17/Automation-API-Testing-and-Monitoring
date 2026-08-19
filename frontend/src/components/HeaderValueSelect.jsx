@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronIcon, CheckIcon } from './icons.jsx';
-import { envBadgeClass } from '../utils/envBadge.js';
+import { groupByEnv } from '../utils/envBadge.js';
 
 /**
  * A header value field that's always a real, freely-editable text input —
@@ -60,22 +60,20 @@ export default function HeaderValueSelect({ options, value, onChange, placeholde
 
   const pick = (opt) => { onChange(opt.value); setOpen(false); };
 
-  // Same single-line "name [env]" + pill layout as AuthorizationField's
-  // credential list, but the name (short, identifying) and the value (can
-  // be a long hash) can't share that layout's flex rules — those give the
-  // pill first claim on space and let the name get squeezed to a sliver.
-  // Here the name keeps its full width instead, and the value pill is a
-  // fixed width (not flex) so every row's badge lines up and none of them
-  // balloons out just because its hash happens to be long. The env gets its
-  // own color-coded badge (see utils/envBadge.js) so which environment a
-  // value belongs to is obvious without reading the text.
+  // Same single-line "name" + pill layout as AuthorizationField's credential
+  // list, but the name (short, identifying) and the value (can be a long
+  // hash) can't share that layout's flex rules — those give the pill first
+  // claim on space and let the name get squeezed to a sliver. Here the name
+  // keeps its full width instead, and the value pill is a fixed width (not
+  // flex) so every row's badge lines up and none of them balloons out just
+  // because its hash happens to be long. Environment is no longer its own
+  // per-item badge — options are grouped into a section per environment
+  // (see groupByEnv below), so which env a value belongs to is already
+  // obvious from the section it sits under.
   const renderOptionContent = (opt) => (
     opt.label ? (
       <>
         <span className="header-value-item-name">{opt.label}</span>
-        {opt.environment_name && (
-          <span className={`badge ${envBadgeClass(opt.environment_name)} header-value-item-env`}>{opt.environment_name}</span>
-        )}
         <span className="badge neutral mono header-value-item-value" title={opt.value}>{opt.value || '(empty)'}</span>
       </>
     ) : (
@@ -107,11 +105,21 @@ export default function HeaderValueSelect({ options, value, onChange, placeholde
           className="cred-select-list"
           style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width }}
         >
-          {options.map((opt, i) => (
-            <button type="button" key={`${opt.label}-${opt.environment_name}-${i}`} className="cred-select-item" onClick={() => pick(opt)}>
-              <span className="cred-select-check">{value === opt.value && <CheckIcon />}</span>
-              {renderOptionContent(opt)}
-            </button>
+          {groupByEnv(options, (opt) => opt.environment_name).map((group, gi) => (
+            <div key={group.key}>
+              <div
+                className="cred-select-group-label"
+                style={gi > 0 ? { marginTop: 6, borderTop: '1px solid var(--border)', paddingTop: 10 } : undefined}
+              >
+                {group.key}
+              </div>
+              {group.items.map((opt, i) => (
+                <button type="button" key={`${opt.label}-${opt.environment_name}-${i}`} className="cred-select-item" onClick={() => pick(opt)}>
+                  <span className="cred-select-check">{value === opt.value && <CheckIcon />}</span>
+                  {renderOptionContent(opt)}
+                </button>
+              ))}
+            </div>
           ))}
         </div>,
         document.body

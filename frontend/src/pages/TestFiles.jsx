@@ -233,12 +233,14 @@ export default function TestFiles() {
                 <td className="hint" style={{ textAlign: 'center' }}>{formatBytes(Number(f.approx_bytes))}</td>
                 <td></td>
                 <td className="row-actions">
-                  <OptionsMenu
-                    items={[
-                      { label: 'Edit', icon: <EditIcon />, onClick: () => startRename(f) },
-                      { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(f), danger: true },
-                    ]}
-                  />
+                  <span className="row-actions-inner">
+                    <OptionsMenu
+                      items={[
+                        { label: 'Edit', icon: <EditIcon />, onClick: () => startRename(f) },
+                        { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(f), danger: true },
+                      ]}
+                    />
+                  </span>
                 </td>
               </tr>
             ))}

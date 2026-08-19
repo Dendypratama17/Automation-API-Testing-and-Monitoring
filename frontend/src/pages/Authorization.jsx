@@ -330,15 +330,17 @@ export default function Authorization() {
                       )}
                     </td>
                     <td className="row-actions">
-                      <OptionsMenu
-                        items={[
-                          ...(cred.type === 'web_login'
-                            ? [{ label: testingId === cred.id ? 'Testing...' : 'Test Login', onClick: () => handleTestLogin(cred), disabled: testingId === cred.id }]
-                            : []),
-                          { label: 'Edit', icon: <EditIcon />, onClick: () => startEdit(cred) },
-                          { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(cred), danger: true },
-                        ]}
-                      />
+                      <span className="row-actions-inner">
+                        <OptionsMenu
+                          items={[
+                            ...(cred.type === 'web_login'
+                              ? [{ label: testingId === cred.id ? 'Testing...' : 'Test Login', onClick: () => handleTestLogin(cred), disabled: testingId === cred.id }]
+                              : []),
+                            { label: 'Edit', icon: <EditIcon />, onClick: () => startEdit(cred) },
+                            { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(cred), danger: true },
+                          ]}
+                        />
+                      </span>
                     </td>
                   </tr>
                 ))}

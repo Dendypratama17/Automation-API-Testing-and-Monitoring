@@ -295,24 +295,26 @@ export default function Endpoints() {
                       <span className="truncate" style={{ maxWidth: '100%' }}>{resourcePath(ep.path_template)}</span>
                     </td>
                     <td className="row-actions" onClick={(e) => e.stopPropagation()}>
-                      <OptionsMenu
-                        items={[
-                          { label: 'Edit', icon: <EditIcon />, onClick: () => openEndpoint(ep) },
-                          { label: 'Duplicate', icon: <CopyIcon />, onClick: () => handleDuplicate(ep.id) },
-                          {
-                            label: 'Move to Folder',
-                            icon: <FolderIcon />,
-                            submenu: [
-                              { label: 'No Folder', onClick: () => handleMoveEndpoint(ep, null) },
-                              ...flattenFolders(folders).map((f) => ({
-                                label: folderOptionLabel(f),
-                                onClick: () => handleMoveEndpoint(ep, f.id),
-                              })),
-                            ],
-                          },
-                          { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(ep.id), danger: true, divider: true },
-                        ]}
-                      />
+                      <span className="row-actions-inner">
+                        <OptionsMenu
+                          items={[
+                            { label: 'Edit', icon: <EditIcon />, onClick: () => openEndpoint(ep) },
+                            { label: 'Duplicate', icon: <CopyIcon />, onClick: () => handleDuplicate(ep.id) },
+                            {
+                              label: 'Move to Folder',
+                              icon: <FolderIcon />,
+                              submenu: [
+                                { label: 'No Folder', onClick: () => handleMoveEndpoint(ep, null) },
+                                ...flattenFolders(folders).map((f) => ({
+                                  label: folderOptionLabel(f),
+                                  onClick: () => handleMoveEndpoint(ep, f.id),
+                                })),
+                              ],
+                            },
+                            { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(ep.id), danger: true, divider: true },
+                          ]}
+                        />
+                      </span>
                     </td>
                   </tr>
                 ))}

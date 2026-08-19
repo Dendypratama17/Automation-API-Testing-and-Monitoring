@@ -21,7 +21,7 @@ import AuthorizationField from '../components/AuthorizationField.jsx';
 import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
 import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
-import { exportRunResultToPdf, getRunResultPdfBase64 } from '../utils/exportRunResultPdf.js';
+import { exportRunResultToPdf, getRunResultPdfBase64, exportBatchRunResultToPdf, getBatchRunResultPdfBase64 } from '../utils/exportRunResultPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
 import { loadSelectedFolder, saveSelectedFolder, hasStoredFolder } from '../utils/persistedFolder.js';
 
@@ -497,7 +497,15 @@ export default function Flows() {
   // test account doesn't mean hand-editing each step's headers individually.
   const xTokenOptions = defaultHeaders.filter((h) => h.key.trim().toLowerCase() === 'x-token');
 
+  // A credential picked from "Select account", awaiting the user's choice of
+  // fill mode (empty steps only, or override every step) before it's
+  // actually applied — see handleApplyAuthCredential below.
+  const [pendingAuthCredential, setPendingAuthCredential] = useState(null);
   const [editingFlow, setEditingFlow] = useState(null);
+  // Cleared whenever the panel closes or switches to a different flow —
+  // there are many close/switch call sites, so this catches all of them
+  // uniformly instead of resetting it at each one individually.
+  useEffect(() => { setPendingAuthCredential(null); }, [editingFlow?.id]);
   const [viewingFlow, setViewingFlow] = useState(null);
   const [expandedStep, setExpandedStep] = useState(0);
   const [stepErrors, setStepErrors] = useState({});
@@ -508,6 +516,7 @@ export default function Flows() {
   const [error, setError] = useState('');
   const [runResult, setRunResult] = useState(null);
   const [sharingRunResult, setSharingRunResult] = useState(false);
+  const [sharingBatchRunResult, setSharingBatchRunResult] = useState(false);
   const [running, setRunning] = useState(false);
   const [runningFlowId, setRunningFlowId] = useState(null);
   const [runningToken, setRunningToken] = useState(null);
@@ -894,6 +903,52 @@ export default function Flows() {
     }
   };
 
+  // "Fill empty" only ever touches steps with no Authorization yet — always
+  // safe, no confirm needed. "Override" replaces EVERY step's Authorization,
+  // including ones already set to something else — a confirm here since
+  // that's a real, hard-to-notice-until-too-late data loss otherwise.
+  const handleApplyAuthCredential = async (cred, overrideExisting) => {
+    const emptyCount = editingFlow.steps.filter((s) => !s.authCredentialId).length;
+    const filledCount = editingFlow.steps.length - emptyCount;
+    if (overrideExisting) {
+      if (filledCount === 0) {
+        showToast('No step has its own Authorization set yet — nothing to override.');
+        setPendingAuthCredential(null);
+        return;
+      }
+      const ok = await confirm(
+        `Override Authorization on ${filledCount} step${filledCount === 1 ? '' : 's'} that already ${filledCount === 1 ? 'has' : 'have'} one set, replacing it with "${cred.name}"? This can't be undone.`
+      );
+      if (!ok) return;
+      // Also blank any raw Authorization header row a step might already
+      // have (e.g. from a pasted curl command) — picking a credential here
+      // bypasses AuthorizationField's own onChange, which is normally what
+      // clears that row, so without this the old raw value would keep
+      // riding along as a second, differently-cased Authorization header
+      // at request time (see flowExecutor.js's dedup for the other half of
+      // this fix).
+      const steps = editingFlow.steps.map((step) => ({
+        ...step, authCredentialId: String(cred.id), headersRows: setAuthHeaderValue(step.headersRows, ''),
+      }));
+      setEditingFlow({ ...editingFlow, steps });
+      showToast(`Set Authorization to "${cred.name}" for all ${steps.length} step${steps.length === 1 ? '' : 's'}.`);
+    } else {
+      if (emptyCount === 0) {
+        showToast('Every step already has its own Authorization set — nothing to fill.');
+        setPendingAuthCredential(null);
+        return;
+      }
+      const steps = editingFlow.steps.map((step) => (
+        !step.authCredentialId
+          ? { ...step, authCredentialId: String(cred.id), headersRows: setAuthHeaderValue(step.headersRows, '') }
+          : step
+      ));
+      setEditingFlow({ ...editingFlow, steps });
+      showToast(`Filled Authorization for ${emptyCount} step${emptyCount === 1 ? '' : 's'} with "${cred.name}".`);
+    }
+    setPendingAuthCredential(null);
+  };
+
   const refreshFlowList = () => loadFlows(selectedFolderId === 'all' ? undefined : selectedFolderId);
 
   const handleSaveFlow = async () => {
@@ -1105,6 +1160,24 @@ export default function Flows() {
       showToast(err.response?.data?.error || err.message, 'error');
     } finally {
       setSharingRunResult(false);
+    }
+  };
+
+  const handleShareBatchRunResultToTelegram = async () => {
+    setSharingBatchRunResult(true);
+    try {
+      const { base64, filename } = getBatchRunResultPdfBase64(batchRunResult);
+      const passCount = batchRunResult.results.filter((r) => r.flow_run?.status === 'PASS').length;
+      await sendDocumentToTelegram({
+        filename,
+        caption: `Batch Run: ${passCount}/${batchRunResult.results.length} flows passed`,
+        fileBase64: base64,
+      });
+      showToast('Sent to Telegram.');
+    } catch (err) {
+      showToast(err.response?.data?.error || err.message, 'error');
+    } finally {
+      setSharingBatchRunResult(false);
     }
   };
 
@@ -1351,33 +1424,35 @@ export default function Flows() {
                       </select>
                     </td>
                     <td className="row-actions">
-                      <button
-                        className="btn-icon"
-                        onClick={(e) => { e.stopPropagation(); handleRunFlow(f.id); }}
-                        disabled={running || !flowEnvIds[f.id]}
-                        title={flowEnvIds[f.id] ? 'Run' : 'Select an environment first'}
-                        aria-label="Run"
-                      >
-                        {runningFlowId === f.id ? <span className="spinner" /> : <PlayIcon />}
-                      </button>
-                      <OptionsMenu
-                        items={[
-                          { label: 'Edit', icon: <EditIcon />, onClick: () => openFlow(f.id) },
-                          { label: 'Duplicate', icon: <CopyIcon />, onClick: () => handleDuplicateFlow(f.id) },
-                          {
-                            label: 'Move to Folder',
-                            icon: <FolderIcon />,
-                            submenu: [
-                              { label: 'No Folder', onClick: () => handleMoveFlow(f.id, null) },
-                              ...flattenFolders(folders).map((fo) => ({
-                                label: folderOptionLabel(fo),
-                                onClick: () => handleMoveFlow(f.id, fo.id),
-                              })),
-                            ],
-                          },
-                          { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDeleteFlow(f.id), danger: true, divider: true },
-                        ]}
-                      />
+                      <span className="row-actions-inner">
+                        <button
+                          className="btn-icon"
+                          onClick={(e) => { e.stopPropagation(); handleRunFlow(f.id); }}
+                          disabled={running || !flowEnvIds[f.id]}
+                          title={flowEnvIds[f.id] ? 'Run' : 'Select an environment first'}
+                          aria-label="Run"
+                        >
+                          {runningFlowId === f.id ? <span className="spinner" /> : <PlayIcon />}
+                        </button>
+                        <OptionsMenu
+                          items={[
+                            { label: 'Edit', icon: <EditIcon />, onClick: () => openFlow(f.id) },
+                            { label: 'Duplicate', icon: <CopyIcon />, onClick: () => handleDuplicateFlow(f.id) },
+                            {
+                              label: 'Move to Folder',
+                              icon: <FolderIcon />,
+                              submenu: [
+                                { label: 'No Folder', onClick: () => handleMoveFlow(f.id, null) },
+                                ...flattenFolders(folders).map((fo) => ({
+                                  label: folderOptionLabel(fo),
+                                  onClick: () => handleMoveFlow(f.id, fo.id),
+                                })),
+                              ],
+                            },
+                            { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDeleteFlow(f.id), danger: true, divider: true },
+                          ]}
+                        />
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -1462,7 +1537,7 @@ export default function Flows() {
                       const cred = authCredentials.find((c) => c.id === s.auth_credential_id);
                       return (
                         <div className="hint" style={{ fontSize: 12.5, marginTop: 6, marginLeft: 32 }}>
-                          Authorization: {cred?.name || `#${s.auth_credential_id}`}{cred?.environment_name ? ` (${cred.environment_name})` : ''}{cred && ` — ${cred.type === 'web_login' ? 'Web Login (Bearer)' : 'Basic Auth'}`}
+                          Authorization: {cred?.name || `#${s.auth_credential_id}`}{cred?.environment_name ? ` (${cred.environment_name})` : ''}{cred && ` — ${cred.type === 'web_login' ? 'Web Login' : 'Basic Auth'}`}
                         </div>
                       );
                     })()}
@@ -1540,29 +1615,18 @@ export default function Flows() {
                 </select>
                 <BulkSelectDropdown
                   placeholder="Select account"
-                  title="Fills the Authorization of every step that doesn't have one set yet. Each step keeps that credential going forward — token refresh happens automatically whenever it's close to expiring, no flow-level setting needed."
+                  title="Pick a credential, then choose whether to only fill empty steps or override every step's Authorization."
                   options={authCredentials}
                   groupBy={(c) => c.environment_name || 'No Environment'}
                   renderOption={(c) => (
                     <>
                       <span className="header-value-item-name">{c.name}</span>
                       <span className="badge neutral auth-type-badge">
-                        {c.type === 'web_login' ? 'Web Login (Bearer)' : 'Basic Auth'}
+                        {c.type === 'web_login' ? 'Web Login' : 'Basic Auth'}
                       </span>
                     </>
                   )}
-                  onPick={(c) => {
-                    const emptyCount = editingFlow.steps.filter((s) => !s.authCredentialId).length;
-                    const steps = editingFlow.steps.map((step) => (
-                      !step.authCredentialId ? { ...step, authCredentialId: String(c.id) } : step
-                    ));
-                    setEditingFlow({ ...editingFlow, steps });
-                    showToast(
-                      emptyCount > 0
-                        ? `Filled Authorization for ${emptyCount} step${emptyCount === 1 ? '' : 's'} with "${c.name}".`
-                        : 'Every step already has its own Authorization set — nothing to fill.'
-                    );
-                  }}
+                  onPick={(c) => setPendingAuthCredential(c)}
                 />
                 <BulkSelectDropdown
                   placeholder="Set X-Token"
@@ -1608,6 +1672,21 @@ export default function Flows() {
                   /> Stop if a step FAILs/ERRORs
                 </label>
               </div>
+
+              {pendingAuthCredential && (
+                <div className="toolbar" style={{ gap: 8, background: 'var(--surface-2)', padding: '8px 10px', borderRadius: 8, marginBottom: 4 }}>
+                  <span className="hint" style={{ fontSize: 12.5 }}>Apply "{pendingAuthCredential.name}" to:</span>
+                  <button className="btn-quiet" onClick={() => handleApplyAuthCredential(pendingAuthCredential, false)}>
+                    Fill empty steps ({editingFlow.steps.filter((s) => !s.authCredentialId).length})
+                  </button>
+                  <button className="btn-quiet" onClick={() => handleApplyAuthCredential(pendingAuthCredential, true)}>
+                    Override all steps ({editingFlow.steps.length})
+                  </button>
+                  <button className="btn-icon" onClick={() => setPendingAuthCredential(null)} title="Cancel" style={{ marginLeft: 'auto' }}>
+                    <XIcon />
+                  </button>
+                </div>
+              )}
 
               <div className="card-row" style={{ marginTop: 20 }}>
                 <h4 style={{ margin: 0 }}>Steps</h4>
@@ -1817,8 +1896,16 @@ export default function Flows() {
                       <summary className="field-label"><ChevronIcon className="chevron" />Headers</summary>
                       <div style={{ marginTop: 8 }}>
                         <KeyValueEditor
-                          rows={step.headersRows}
-                          onChange={(rows) => handleStepChange(idx, 'headersRows', rows)}
+                          // Authorization has its own field above — hiding it here too
+                          // (rather than just leaving it visible-but-blank) is what stops
+                          // someone from typing a second value into it under a different
+                          // case (e.g. "authorization") that would then ride along
+                          // alongside the credential's own header at request time.
+                          rows={step.headersRows.filter((r) => r.key.trim().toLowerCase() !== 'authorization')}
+                          onChange={(rows) => {
+                            const authRow = step.headersRows.find((r) => r.key.trim().toLowerCase() === 'authorization');
+                            handleStepChange(idx, 'headersRows', authRow ? [...rows, authRow] : rows);
+                          }}
                         />
                       </div>
                     </details>
@@ -1980,7 +2067,17 @@ export default function Flows() {
             <div className="card">
               <div className="card-row">
                 <h4 style={{ margin: 0 }}>Batch Run Result</h4>
-                <button className="btn-quiet" onClick={() => setBatchRunResult(null)}>✕ Close</button>
+                <div className="toolbar">
+                  <OptionsMenu
+                    label="Export"
+                    title="Download this batch run result as a PDF, or share it straight to Telegram"
+                    items={[
+                      { label: 'Download PDF', icon: <DownloadIcon />, onClick: () => exportBatchRunResultToPdf(batchRunResult) },
+                      { label: sharingBatchRunResult ? 'Sharing...' : 'Share to Telegram', icon: <SendIcon />, onClick: handleShareBatchRunResultToTelegram, disabled: sharingBatchRunResult },
+                    ]}
+                  />
+                  <button className="btn-quiet" onClick={() => setBatchRunResult(null)}>✕ Close</button>
+                </div>
               </div>
               <div className="stack" style={{ marginTop: 16, gap: 24 }}>
                 {batchRunResult.results.map((r, fIdx) => (

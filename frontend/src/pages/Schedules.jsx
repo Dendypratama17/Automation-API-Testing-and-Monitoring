@@ -474,15 +474,17 @@ export default function Schedules() {
                     <td className="hint">{r.pass_count}/{r.step_count} passed</td>
                     <td className="mono">{r.total_duration_ms != null ? `${r.total_duration_ms}ms` : '-'}</td>
                     <td className="row-actions">
-                      <button
-                        className="btn-icon"
-                        onClick={(e) => handleExportRun(e, r)}
-                        disabled={exportingRunId === r.id}
-                        title="Export as PDF"
-                        aria-label="Export as PDF"
-                      >
-                        {exportingRunId === r.id ? <span className="spinner" /> : <DownloadIcon />}
-                      </button>
+                      <span className="row-actions-inner">
+                        <button
+                          className="btn-icon"
+                          onClick={(e) => handleExportRun(e, r)}
+                          disabled={exportingRunId === r.id}
+                          title="Export as PDF"
+                          aria-label="Export as PDF"
+                        >
+                          {exportingRunId === r.id ? <span className="spinner" /> : <DownloadIcon />}
+                        </button>
+                      </span>
                     </td>
                   </tr>
                 ))}

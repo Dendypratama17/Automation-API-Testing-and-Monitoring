@@ -130,4 +130,12 @@ function primeTokenCache(credentialId, token, expires) {
   tokenCache.set(credentialId, { token, expiresAt: Number.isNaN(expiresAt) ? Date.now() + 10 * 60 * 1000 : expiresAt });
 }
 
-module.exports = { fetchWebLoginToken, getWebLoginToken, primeTokenCache };
+// Called whenever a credential's username/password/login_url is edited or
+// the credential itself is deleted — without this, a flow run would keep
+// using the token from BEFORE the edit (still valid by expiry, just for the
+// wrong account/page) until it happens to near-expire on its own.
+function invalidateTokenCache(credentialId) {
+  tokenCache.delete(credentialId);
+}
+
+module.exports = { fetchWebLoginToken, getWebLoginToken, primeTokenCache, invalidateTokenCache };

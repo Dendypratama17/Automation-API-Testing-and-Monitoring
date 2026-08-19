@@ -20,10 +20,12 @@ export const importPostmanCollection = (data) => api.post('/endpoints/import/pos
 
 export const computeJsonDiff = (data) => api.post('/json-diff/compute', data).then((r) => r.data);
 export const saveJsonDiff = (data) => api.post('/json-diff/save', data).then((r) => r.data);
-export const getSavedJsonDiffs = () => api.get('/json-diff').then((r) => r.data);
+export const updateSavedJsonDiff = (id, data) => api.put(`/json-diff/${id}`, data).then((r) => r.data);
+export const getSavedJsonDiffs = (params) => api.get('/json-diff', { params }).then((r) => r.data);
 export const getSavedJsonDiff = (id) => api.get(`/json-diff/${id}`).then((r) => r.data);
 export const deleteSavedJsonDiff = (id) => api.delete(`/json-diff/${id}`).then((r) => r.data);
 export const renameSavedJsonDiff = (id, name) => api.put(`/json-diff/${id}/rename`, { name }).then((r) => r.data);
+export const moveSavedJsonDiff = (id, folderId) => api.put(`/json-diff/${id}/rename`, { folder_id: folderId }).then((r) => r.data);
 export const sendDocumentToTelegram = (data) => api.post('/telegram/send-document', data).then((r) => r.data);
 
 export const getFolders = (kind) => api.get('/folders', { params: { kind } }).then((r) => r.data);

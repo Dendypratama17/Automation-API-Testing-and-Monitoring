@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   LineChart, Line, Bar, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ReferenceLine, ResponsiveContainer,
 } from 'recharts';
-import { getEndpointDetail, getEndpointTrend, getAlerts, getLastRuns, getLastFlowRuns, getAnalytics, getEnvironments, getFlowRun, getFlow, sendDocumentToTelegram } from '../api/client';
+import { getEndpointDetail, getEndpointTrend, getAlerts, getLastRuns, getLastFlowRuns, getAnalytics, getEnvironments, getFlowRun, sendDocumentToTelegram } from '../api/client';
 import JsonBlock from '../components/JsonBlock.jsx';
 import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
@@ -126,7 +126,7 @@ function HitRow({ row, selectedRowId, onSelect }) {
 // Full detail for one selected hit — rendered right below whichever table
 // (Recent Hits or Recent Alerts) the row was clicked from, so it never
 // appears to "do nothing" when clicked from the lower table.
-function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, runInfo, stepHeaders, trend, closeDetail, detailRef }) {
+function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, runInfo, trend, closeDetail, detailRef }) {
   const showToast = useToast();
   const [sharing, setSharing] = useState(false);
 
@@ -257,7 +257,7 @@ function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, runInfo
         <div className="stack" style={{ minWidth: 0 }}>
           <div>
             <span className="field-label">Headers</span>
-            <JsonBlock value={stepHeaders ?? detail.endpoint.headers} />
+            <JsonBlock value={selectedRow.request_headers ?? detail.endpoint.headers} />
           </div>
           <div>
             <span className="field-label">Request Body</span>
@@ -324,7 +324,6 @@ export default function Dashboard() {
   // same getFlowRun call that populates runSteps — kept separately so
   // exporting the run to PDF doesn't need a second fetch.
   const [runInfo, setRunInfo] = useState(null);
-  const [stepHeaders, setStepHeaders] = useState(null);
   const detailRef = useRef(null);
 
   const [rangePreset, setRangePreset] = useState('7d');
@@ -415,26 +414,6 @@ export default function Dashboard() {
       setRunSteps(run.steps || []);
       setRunInfo({ id: run.id, status: run.status, created_at: run.created_at, flow_name: run.flow_name });
     }).catch(() => { if (!cancelled) { setRunSteps([]); setRunInfo(null); } });
-    return () => { cancelled = true; };
-  }, [selectedRow]);
-
-  // The endpoint's own headers (`detail.endpoint.headers`, fetched above)
-  // don't reflect anything the Flow step itself overrode/added (e.g. an
-  // Accept-Language row added only in this flow) — flow_run_steps doesn't
-  // persist the exact resolved headers either, so the closest accurate
-  // stand-in is the flow step's OWN saved header config (still a template,
-  // same caveat as the Request Body box already has).
-  useEffect(() => {
-    if (!selectedRow?.flow_run_id || selectedRow.step_order == null) { setStepHeaders(null); return; }
-    let cancelled = false;
-    getFlowRun(selectedRow.flow_run_id)
-      .then((run) => getFlow(run.flow_id))
-      .then((flow) => {
-        if (cancelled) return;
-        const step = (flow.steps || []).find((s) => s.step_order === selectedRow.step_order);
-        setStepHeaders(step ? step.headers : null);
-      })
-      .catch(() => { if (!cancelled) setStepHeaders(null); });
     return () => { cancelled = true; };
   }, [selectedRow]);
 
@@ -585,7 +564,7 @@ export default function Dashboard() {
       {detail && selectedRow && selectedFrom === 'hits' && (
         <HitDetailPanel
           detail={detail} selectedRow={selectedRow} setSelectedRow={setSelectedRow}
-          runSteps={runSteps} runInfo={runInfo} stepHeaders={stepHeaders} trend={trend} closeDetail={closeDetail} detailRef={detailRef}
+          runSteps={runSteps} runInfo={runInfo} trend={trend} closeDetail={closeDetail} detailRef={detailRef}
         />
       )}
 
@@ -623,7 +602,7 @@ export default function Dashboard() {
       {detail && selectedRow && selectedFrom === 'alerts' && (
         <HitDetailPanel
           detail={detail} selectedRow={selectedRow} setSelectedRow={setSelectedRow}
-          runSteps={runSteps} runInfo={runInfo} stepHeaders={stepHeaders} trend={trend} closeDetail={closeDetail} detailRef={detailRef}
+          runSteps={runSteps} runInfo={runInfo} trend={trend} closeDetail={closeDetail} detailRef={detailRef}
         />
       )}
 

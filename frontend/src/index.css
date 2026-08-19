@@ -501,7 +501,14 @@ button.btn-icon {
 .form-data-row .file-picker-menu { width: 100%; }
 .form-data-row .file-picker-menu { display: block; }
 .form-data-row .file-picker-menu button { width: 100%; text-align: left; }
-.row-actions { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+/* NOT display:flex on the <td> itself — forcing a table-cell's display away
+   from table-cell drops it out of the table's normal box-layout algorithm,
+   which border-collapse relies on to line borders up with sibling cells in
+   the same row. That's exactly why this column's border looked slightly
+   offset/discontinuous from the rest of the row. The flex layout instead
+   lives on an inner wrapper (.row-actions-inner) around this td's content,
+   so the td itself stays a normal, properly-bordered table cell. */
+.row-actions-inner { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
 
 /* ---------- Table ---------- */
 

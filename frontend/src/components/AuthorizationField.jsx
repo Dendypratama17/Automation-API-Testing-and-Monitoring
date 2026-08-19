@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronIcon, CheckIcon } from './icons.jsx';
+import { groupByEnv } from '../utils/envBadge.js';
 
 /**
  * The Authorization section's combined "type it or pick it" field — same
@@ -87,7 +88,7 @@ export default function AuthorizationField({ credentials, credentialId, rawValue
       />
       {selectedCred && (
         <span className="badge neutral" style={{ flexShrink: 0, marginRight: 6 }}>
-          {selectedCred.type === 'web_login' ? 'Web Login (Bearer)' : 'Basic Auth'}
+          {selectedCred.type === 'web_login' ? 'Web Login' : 'Basic Auth'}
         </span>
       )}
       <button
@@ -108,14 +109,24 @@ export default function AuthorizationField({ credentials, credentialId, rawValue
             <span className="cred-select-check">{!credentialId && <CheckIcon />}</span>
             None
           </button>
-          {credentials.map((cred) => (
-            <button type="button" key={cred.id} className="cred-select-item" onClick={() => pickCredential(cred)}>
-              <span className="cred-select-check">{String(credentialId) === String(cred.id) && <CheckIcon />}</span>
-              <span className="cred-select-item-label">{cred.name}{cred.environment_name ? ` (${cred.environment_name})` : ''}</span>
-              <span className="badge neutral auth-type-badge">
-                {cred.type === 'web_login' ? 'Web Login (Bearer)' : 'Basic Auth'}
-              </span>
-            </button>
+          {groupByEnv(credentials, (cred) => cred.environment_name).map((group, gi) => (
+            <div key={group.key}>
+              <div
+                className="cred-select-group-label"
+                style={{ marginTop: 6, borderTop: '1px solid var(--border)', paddingTop: 10 }}
+              >
+                {group.key}
+              </div>
+              {group.items.map((cred) => (
+                <button type="button" key={cred.id} className="cred-select-item" onClick={() => pickCredential(cred)}>
+                  <span className="cred-select-check">{String(credentialId) === String(cred.id) && <CheckIcon />}</span>
+                  <span className="cred-select-item-label">{cred.name}</span>
+                  <span className="badge neutral auth-type-badge">
+                    {cred.type === 'web_login' ? 'Web Login' : 'Basic Auth'}
+                  </span>
+                </button>
+              ))}
+            </div>
           ))}
         </div>,
         document.body

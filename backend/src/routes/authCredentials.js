@@ -3,7 +3,7 @@ const router = express.Router();
 const pool = require('../db/pool');
 const catchAsync = require('../utils/catchAsync');
 const { encrypt, decrypt } = require('../utils/crypto');
-const { fetchWebLoginToken, primeTokenCache } = require('../services/webLogin');
+const { fetchWebLoginToken, primeTokenCache, invalidateTokenCache } = require('../services/webLogin');
 const { getLockState, recordFailedAttempt, clearAttempts } = require('../services/pinAttemptLimiter');
 
 // Password never leaves the server in any API response — the UI only ever
@@ -76,6 +76,9 @@ router.put('/:id', catchAsync(async (req, res) => {
     'UPDATE auth_credentials SET name=$1, type=$2, username=$3, password=$4, login_url=$5, environment_id=$6, updated_at=NOW() WHERE id=$7 RETURNING *',
     [name, type, username, encryptedPassword, type === 'web_login' ? login_url : null, environment_id || null, req.params.id]
   );
+  // Whatever's cached was logged in under the pre-edit username/password/URL —
+  // keeping it around would silently apply the old account to the next run.
+  invalidateTokenCache(Number(req.params.id));
   res.json(withoutPassword(result.rows[0]));
 }));
 
@@ -107,6 +110,7 @@ router.post('/:id/reveal-password', catchAsync(async (req, res) => {
 // DELETE credential (flow steps using it just fall back to no auth, via ON DELETE SET NULL)
 router.delete('/:id', catchAsync(async (req, res) => {
   await pool.query('DELETE FROM auth_credentials WHERE id=$1', [req.params.id]);
+  invalidateTokenCache(Number(req.params.id));
   res.status(204).send();
 }));
 

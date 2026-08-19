@@ -308,3 +308,7 @@ CREATE TABLE IF NOT EXISTS saved_json_diffs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_saved_json_diffs_created ON saved_json_diffs(created_at);
+
+-- Organizes saved comparisons into folders (kind='json_diff' in the shared
+-- folders table, same convention as endpoints/flows).
+ALTER TABLE saved_json_diffs ADD COLUMN IF NOT EXISTS folder_id INT REFERENCES folders(id) ON DELETE SET NULL;

@@ -146,12 +146,14 @@ export default function Environments() {
                 </td>
                 <td>{env.is_protected ? <span className="badge drift">Protected</span> : <span className="hint">No</span>}</td>
                 <td className="row-actions">
-                  <OptionsMenu
-                    items={[
-                      { label: 'Edit', icon: <EditIcon />, onClick: () => startEdit(env) },
-                      { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(env), danger: true },
-                    ]}
-                  />
+                  <span className="row-actions-inner">
+                    <OptionsMenu
+                      items={[
+                        { label: 'Edit', icon: <EditIcon />, onClick: () => startEdit(env) },
+                        { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(env), danger: true },
+                      ]}
+                    />
+                  </span>
                 </td>
               </tr>
             ))}

@@ -383,6 +383,16 @@ async function runStep(step, baseVariables, flow, authCredentials, previousSchem
   // needing any extra opt-in/opt-out here.
   if (step.auth_credential_id && authCredentials[step.auth_credential_id]) {
     const cred = authCredentials[step.auth_credential_id];
+    // A picked credential always wins over anything already in the headers
+    // config, but a plain assignment below only ever writes the literal key
+    // "Authorization" — a differently-cased leftover (e.g. "authorization"
+    // from a pasted curl command, still present from before this step had a
+    // credential picked) would stay behind as its own key and get sent/
+    // persisted as a second Authorization header. Clear every case-variant
+    // first so exactly one survives.
+    for (const key of Object.keys(headers)) {
+      if (key.toLowerCase() === 'authorization') delete headers[key];
+    }
     if (cred.type === 'web_login') {
       headers['Authorization'] = `Bearer ${cred.token}`;
     } else {
