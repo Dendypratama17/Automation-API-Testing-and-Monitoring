@@ -96,30 +96,52 @@ const REFRESH_MARGIN_MS = 2 * 60 * 1000;
 const MAX_LOGIN_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 2000;
 
+// A Parallel Batch Run (or just two single runs landing close together) can
+// have more than one caller ask for the SAME credential's token at once —
+// without this, every one of them would see the same cache miss and each
+// launch its own concurrent Puppeteer login for the same account, which is
+// pure waste (only the first needed to actually log in) and risks the real
+// login page rejecting/rate-limiting concurrent sessions for one account.
+// Keyed by credential id -> the in-progress token Promise; later callers
+// just await the same one instead of starting their own.
+const inFlightLogins = new Map();
+
 async function getWebLoginToken(cred) {
   const cached = tokenCache.get(cred.id);
   if (cached && cached.expiresAt - Date.now() > REFRESH_MARGIN_MS) {
     return cached.token;
   }
 
-  let lastErr;
-  for (let attempt = 1; attempt <= MAX_LOGIN_ATTEMPTS; attempt++) {
-    try {
-      const { token, expires } = await fetchWebLoginToken(cred);
-      const expiresAt = expires ? Date.parse(expires) : NaN;
-      tokenCache.set(cred.id, { token, expiresAt: Number.isNaN(expiresAt) ? Date.now() + 10 * 60 * 1000 : expiresAt });
-      return token;
-    } catch (err) {
-      lastErr = err;
-      console.error(`[webLogin] Login attempt ${attempt}/${MAX_LOGIN_ATTEMPTS} for "${cred.name}" failed: ${err.message}`);
-      if (attempt < MAX_LOGIN_ATTEMPTS && isRetryableLoginError(err)) {
-        await sleep(RETRY_DELAY_MS);
-        continue;
+  const inFlight = inFlightLogins.get(cred.id);
+  if (inFlight) return inFlight;
+
+  const loginPromise = (async () => {
+    let lastErr;
+    for (let attempt = 1; attempt <= MAX_LOGIN_ATTEMPTS; attempt++) {
+      try {
+        const { token, expires } = await fetchWebLoginToken(cred);
+        const expiresAt = expires ? Date.parse(expires) : NaN;
+        tokenCache.set(cred.id, { token, expiresAt: Number.isNaN(expiresAt) ? Date.now() + 10 * 60 * 1000 : expiresAt });
+        return token;
+      } catch (err) {
+        lastErr = err;
+        console.error(`[webLogin] Login attempt ${attempt}/${MAX_LOGIN_ATTEMPTS} for "${cred.name}" failed: ${err.message}`);
+        if (attempt < MAX_LOGIN_ATTEMPTS && isRetryableLoginError(err)) {
+          await sleep(RETRY_DELAY_MS);
+          continue;
+        }
+        break;
       }
-      break;
     }
+    throw lastErr;
+  })();
+  inFlightLogins.set(cred.id, loginPromise);
+
+  try {
+    return await loginPromise;
+  } finally {
+    inFlightLogins.delete(cred.id);
   }
-  throw lastErr;
 }
 
 // Lets a manual "Test Login" (always a real, uncached check) also prime the
