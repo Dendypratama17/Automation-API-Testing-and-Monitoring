@@ -1428,7 +1428,7 @@ export default function Flows() {
                       <option value="parallel">Parallel</option>
                     </select>
                     <button
-                      className="btn-primary"
+                      className={`btn-success${running ? '' : ' btn-ready'}`}
                       onClick={() => handleBatchRun()}
                       disabled={running}
                       title="Uses whichever environment is already set on each selected flow's row — they all have to match."
@@ -1437,7 +1437,12 @@ export default function Flows() {
                     </button>
                   </>
                 )}
-                <button className={`btn-primary${editingFlow ? '' : ' btn-ready'}`} onClick={openNewFlow}>+ New Flow</button>
+                <button
+                  className={`btn-primary${!editingFlow && (selectedFlowIds.size === 0 || running) ? ' btn-ready' : ''}`}
+                  onClick={openNewFlow}
+                >
+                  + New Flow
+                </button>
               </div>
             </div>
             <div className="table-scroll-x">
