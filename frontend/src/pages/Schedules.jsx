@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   getSchedules, createSchedule, updateSchedule, deleteSchedule, deleteScheduleForever, getScheduleHistory,
-  getScheduleRuns, getEnvironments, getFlows, getFlowRun,
+  getScheduleRuns, getEnvironments, getFlows, getFlowRun, getFolders,
 } from '../api/client';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
@@ -90,6 +90,7 @@ export default function Schedules() {
   const [schedules, setSchedules] = useState([]);
   const [environments, setEnvironments] = useState([]);
   const [flows, setFlows] = useState([]);
+  const [flowFolders, setFlowFolders] = useState([]);
   const [form, setForm] = useState({ name: '', cron_expression: '', flow_id: '', environment_id: '', duration_minutes: '' });
   const [formErrors, setFormErrors] = useState({});
   // Set while editing an existing schedule (Edit action in the row's Options
@@ -115,6 +116,7 @@ export default function Schedules() {
     load();
     getEnvironments().then(setEnvironments);
     getFlows().then(setFlows);
+    getFolders('flow').then(setFlowFolders);
   }, []);
 
   // Keeps the Status column's Running/Active badge live regardless of
@@ -300,6 +302,14 @@ export default function Schedules() {
     ? schedules.find((s) => s.id === viewingSchedule.schedule.id) || viewingSchedule.schedule
     : null;
 
+  const flowFolderNameById = Object.fromEntries(flowFolders.map((f) => [f.id, f.name]));
+  const flowsByFolder = flows.reduce((acc, f) => {
+    const key = f.folder_id ?? 'none';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(f);
+    return acc;
+  }, {});
+
   return (
     <div>
       <div className="page-header">
@@ -341,7 +351,11 @@ export default function Schedules() {
             style={{ flexShrink: 0, width: 200, borderColor: formErrors.flow ? 'var(--fail)' : undefined }}
           >
             <option value="">Select Flow</option>
-            {flows.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+            {Object.entries(flowsByFolder).map(([key, list]) => (
+              <optgroup key={key} label={key === 'none' ? 'No Folder' : (flowFolderNameById[key] || 'Folder')}>
+                {list.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </optgroup>
+            ))}
           </select>
           <select
             value={form.environment_id}
