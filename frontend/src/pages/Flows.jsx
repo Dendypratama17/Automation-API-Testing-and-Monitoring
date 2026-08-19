@@ -914,21 +914,40 @@ export default function Flows() {
     }
   };
 
+  // Basic Auth (and any other non-Bearer scheme someone typed by hand) is
+  // deliberately off-limits for this bulk action — it's meant for swapping
+  // which Web Login account a flow's steps run as, not for clobbering a step
+  // that was intentionally set up to authenticate a different way.
+  const stepUsesNonBearerAuth = (step) => {
+    if (step.authCredentialId) {
+      const cred = authCredentials.find((c) => String(c.id) === String(step.authCredentialId));
+      return cred ? cred.type !== 'web_login' : false;
+    }
+    const raw = getAuthHeaderValue(step.headersRows).trim();
+    return !!raw && !/^bearer\s/i.test(raw);
+  };
+
   // "Fill empty" only ever touches steps with no Authorization yet — always
-  // safe, no confirm needed. "Override" replaces EVERY step's Authorization,
-  // including ones already set to something else — a confirm here since
-  // that's a real, hard-to-notice-until-too-late data loss otherwise.
+  // safe, no confirm needed. "Override" replaces EVERY (Bearer-eligible)
+  // step's Authorization, including ones already set to something else — a
+  // confirm here since that's a real, hard-to-notice-until-too-late data
+  // loss otherwise.
   const handleApplyAuthCredential = async (cred, overrideExisting) => {
-    const emptyCount = editingFlow.steps.filter((s) => !s.authCredentialId).length;
-    const filledCount = editingFlow.steps.length - emptyCount;
+    const eligibleSteps = editingFlow.steps.filter((s) => !stepUsesNonBearerAuth(s));
+    const protectedCount = editingFlow.steps.length - eligibleSteps.length;
+    const protectedNote = protectedCount > 0
+      ? ` ${protectedCount} step${protectedCount === 1 ? '' : 's'} using Basic Auth (or a non-Bearer value) will be left untouched.`
+      : '';
+    const emptyCount = eligibleSteps.filter((s) => !s.authCredentialId).length;
+    const filledCount = eligibleSteps.length - emptyCount;
     if (overrideExisting) {
       if (filledCount === 0) {
-        showToast('No step has its own Authorization set yet — nothing to override.');
+        showToast(`No eligible step has its own Authorization set yet — nothing to override.${protectedNote}`);
         setPendingAuthCredential(null);
         return;
       }
       const ok = await confirm(
-        `Override Authorization on ${filledCount} step${filledCount === 1 ? '' : 's'} that already ${filledCount === 1 ? 'has' : 'have'} one set, replacing it with "${cred.name}"? This can't be undone.`
+        `Override Authorization on ${filledCount} step${filledCount === 1 ? '' : 's'} that already ${filledCount === 1 ? 'has' : 'have'} one set, replacing it with "${cred.name}"?${protectedNote} This can't be undone.`
       );
       if (!ok) return;
       // Also blank any raw Authorization header row a step might already
@@ -938,24 +957,26 @@ export default function Flows() {
       // riding along as a second, differently-cased Authorization header
       // at request time (see flowExecutor.js's dedup for the other half of
       // this fix).
-      const steps = editingFlow.steps.map((step) => ({
-        ...step, authCredentialId: String(cred.id), headersRows: setAuthHeaderValue(step.headersRows, ''),
-      }));
+      const steps = editingFlow.steps.map((step) => (
+        stepUsesNonBearerAuth(step)
+          ? step
+          : { ...step, authCredentialId: String(cred.id), headersRows: setAuthHeaderValue(step.headersRows, '') }
+      ));
       setEditingFlow({ ...editingFlow, steps });
-      showToast(`Set Authorization to "${cred.name}" for all ${steps.length} step${steps.length === 1 ? '' : 's'}.`);
+      showToast(`Set Authorization to "${cred.name}" for ${eligibleSteps.length} step${eligibleSteps.length === 1 ? '' : 's'}.${protectedNote}`);
     } else {
       if (emptyCount === 0) {
-        showToast('Every step already has its own Authorization set — nothing to fill.');
+        showToast(`Every eligible step already has its own Authorization set — nothing to fill.${protectedNote}`);
         setPendingAuthCredential(null);
         return;
       }
       const steps = editingFlow.steps.map((step) => (
-        !step.authCredentialId
+        !step.authCredentialId && !stepUsesNonBearerAuth(step)
           ? { ...step, authCredentialId: String(cred.id), headersRows: setAuthHeaderValue(step.headersRows, '') }
           : step
       ));
       setEditingFlow({ ...editingFlow, steps });
-      showToast(`Filled Authorization for ${emptyCount} step${emptyCount === 1 ? '' : 's'} with "${cred.name}".`);
+      showToast(`Filled Authorization for ${emptyCount} step${emptyCount === 1 ? '' : 's'} with "${cred.name}".${protectedNote}`);
     }
     setPendingAuthCredential(null);
   };
@@ -1714,10 +1735,10 @@ export default function Flows() {
                 <div className="toolbar" style={{ gap: 8, background: 'var(--surface-2)', padding: '8px 10px', borderRadius: 8, marginBottom: 4 }}>
                   <span className="hint" style={{ fontSize: 12.5 }}>Apply "{pendingAuthCredential.name}" to:</span>
                   <button className="btn-quiet" onClick={() => handleApplyAuthCredential(pendingAuthCredential, false)}>
-                    Fill empty steps ({editingFlow.steps.filter((s) => !s.authCredentialId).length})
+                    Fill empty steps ({editingFlow.steps.filter((s) => !s.authCredentialId && !stepUsesNonBearerAuth(s)).length})
                   </button>
                   <button className="btn-quiet" onClick={() => handleApplyAuthCredential(pendingAuthCredential, true)}>
-                    Override all steps ({editingFlow.steps.length})
+                    Override all steps ({editingFlow.steps.filter((s) => !stepUsesNonBearerAuth(s)).length})
                   </button>
                   <button className="btn-icon" onClick={() => setPendingAuthCredential(null)} title="Cancel" style={{ marginLeft: 'auto' }}>
                     <XIcon />
