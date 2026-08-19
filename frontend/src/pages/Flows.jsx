@@ -949,6 +949,31 @@ export default function Flows() {
     setPendingAuthCredential(null);
   };
 
+  // Unchecks (disables) every step's X-Token row instead of deleting it — the
+  // value stays put so a step can be switched back on individually later,
+  // rather than someone having to re-pick "Set X-Token" from scratch.
+  const handleDisableXTokenForAll = async () => {
+    const enabledCount = editingFlow.steps.filter((s) => (
+      s.headersRows.some((r) => r.key.trim().toLowerCase() === 'x-token' && r.enabled !== false)
+    )).length;
+    if (enabledCount === 0) {
+      showToast('No step has X-Token enabled — nothing to disable.');
+      return;
+    }
+    const ok = await confirm(
+      `Uncheck X-Token on ${enabledCount} step${enabledCount === 1 ? '' : 's'}? The value is kept — you can re-enable it on individual steps later.`
+    );
+    if (!ok) return;
+    const steps = editingFlow.steps.map((step) => ({
+      ...step,
+      headersRows: step.headersRows.map((r) => (
+        r.key.trim().toLowerCase() === 'x-token' ? { ...r, enabled: false } : r
+      )),
+    }));
+    setEditingFlow({ ...editingFlow, steps });
+    showToast(`Unchecked X-Token on ${enabledCount} step${enabledCount === 1 ? '' : 's'}.`);
+  };
+
   const refreshFlowList = () => loadFlows(selectedFolderId === 'all' ? undefined : selectedFolderId);
 
   const handleSaveFlow = async () => {
@@ -1664,6 +1689,13 @@ export default function Flows() {
                     showToast(`Set X-Token to "${label}" for all ${steps.length} step${steps.length === 1 ? '' : 's'}.`);
                   }}
                 />
+                <button
+                  className="btn-quiet"
+                  onClick={handleDisableXTokenForAll}
+                  title="Uncheck X-Token on every step in this flow — keeps the value, just turns it off"
+                >
+                  Uncheck X-Token
+                </button>
                 <label style={{ flexShrink: 0, whiteSpace: 'nowrap', marginLeft: 'auto' }}>
                   <input
                     type="checkbox"
