@@ -350,7 +350,7 @@ function sortGroupKeys(keys) {
 // it's purely "pick one of these to apply to every step." An optional
 // `groupBy` splits the list into labelled sections (e.g. one per
 // environment) instead of one long mixed list — see "Select account" below.
-function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title, groupBy }) {
+function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title, groupBy, extraTopAction }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const wrapRef = useRef(null);
@@ -408,6 +408,17 @@ function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title,
       </button>
       {open && pos && createPortal(
         <div ref={listRef} className="cred-select-list" style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width }}>
+          {extraTopAction && (
+            <button
+              type="button"
+              className="cred-select-item"
+              style={{ borderBottom: '1px solid var(--border)', marginBottom: 4, paddingBottom: 10 }}
+              onClick={() => { setOpen(false); extraTopAction.onClick(); }}
+            >
+              <span className="cred-select-check"><CheckIcon style={{ visibility: 'hidden' }} /></span>
+              {extraTopAction.label}
+            </button>
+          )}
           {options.length === 0 && <div className="hint" style={{ padding: '8px 10px', fontSize: 12.5 }}>Nothing configured yet.</div>}
           {groupBy ? (
             (() => {
@@ -1657,6 +1668,7 @@ export default function Flows() {
                   placeholder="Set X-Token"
                   options={xTokenOptions}
                   groupBy={(h) => h.environment_name || 'No Environment'}
+                  extraTopAction={{ label: 'Uncheck X-Token (all steps)', onClick: handleDisableXTokenForAll }}
                   renderOption={(h) => (
                     <>
                       <span className="header-value-item-name">{h.label || 'X-Token'}</span>
@@ -1689,13 +1701,6 @@ export default function Flows() {
                     showToast(`Set X-Token to "${label}" for all ${steps.length} step${steps.length === 1 ? '' : 's'}.`);
                   }}
                 />
-                <button
-                  className="btn-quiet"
-                  onClick={handleDisableXTokenForAll}
-                  title="Uncheck X-Token on every step in this flow — keeps the value, just turns it off"
-                >
-                  Uncheck X-Token
-                </button>
                 <label style={{ flexShrink: 0, whiteSpace: 'nowrap', marginLeft: 'auto' }}>
                   <input
                     type="checkbox"
