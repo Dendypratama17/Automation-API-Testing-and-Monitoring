@@ -1654,6 +1654,15 @@ export default function Flows() {
                 />
                 <button
                   className="btn-icon"
+                  onClick={handleSaveFlow}
+                  title="Save Flow"
+                  aria-label="Save Flow"
+                  style={{ color: 'var(--pass)' }}
+                >
+                  <CheckIcon />
+                </button>
+                <button
+                  className="btn-icon"
                   onClick={() => setEditingFlow(null)}
                   title="Close"
                   aria-label="Close"
