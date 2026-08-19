@@ -4,7 +4,7 @@ const pool = require('../db/pool');
 const catchAsync = require('../utils/catchAsync');
 const { runFlowAndPersist } = require('../services/flowRunner');
 const { parseCurl, toPathTemplate } = require('../services/curlParser');
-const { markCancelled, isCancelled } = require('../services/runCancellation');
+const { markCancelled, isCancelled, clearToken } = require('../services/runCancellation');
 const { initProgress, clearProgress, getProgress } = require('../services/runProgress');
 
 async function replaceSteps(client, flowId, steps) {
@@ -341,8 +341,30 @@ router.patch('/:id/steps', catchAsync(async (req, res) => {
 // BATCH RUN: run several flows in sequence against one environment, chaining
 // each flow's extracted variables into the next — e.g. run a "Login" flow
 // first, then a "Get Profile" flow that reuses the token it extracted.
+// Looks up one flow + its enabled steps and runs it, returning the same
+// `{ flow_id, flow_name, flow_run, steps }` (or `{ flow_id, [flow_name,]
+// error }`) shape either way — shared by both the serial and parallel paths
+// below so they only differ in how they call this, not in what a "result"
+// looks like.
+async function runOneBatchFlow(flowId, environment, triggeredBy, initialVariables, runToken) {
+  const flowResult = await pool.query('SELECT * FROM flows WHERE id=$1', [flowId]);
+  const flow = flowResult.rows[0];
+  if (!flow) return { flow_id: flowId, error: 'Flow not found' };
+
+  const stepsResult = await pool.query('SELECT * FROM flow_steps WHERE flow_id=$1 ORDER BY step_order', [flow.id]);
+  const stepsToRun = stepsResult.rows.filter((s) => s.enabled !== false);
+  if (stepsToRun.length === 0) return { flow_id: flow.id, flow_name: flow.name, error: 'Flow has no enabled steps' };
+
+  // ownsToken: false — several flows in a batch share one cancellation token
+  // (concurrently, for a Parallel batch), so the route clears it exactly
+  // once after the whole batch finishes instead of each flow clearing it
+  // out from under whichever siblings are still running.
+  const result = await runFlowAndPersist(flow, stepsToRun, environment, triggeredBy, null, initialVariables, runToken, runToken, false);
+  return { flow_id: flow.id, flow_name: flow.name, flow_run: result.flow_run, steps: result.steps, variables: result.variables };
+}
+
 router.post('/batch-run', catchAsync(async (req, res) => {
-  const { flow_ids, environment_id, confirm_prod = false, triggered_by = 'manual', run_token = null } = req.body;
+  const { flow_ids, environment_id, confirm_prod = false, triggered_by = 'manual', run_token = null, parallel = false } = req.body;
   if (!Array.isArray(flow_ids) || flow_ids.length === 0) {
     return res.status(400).json({ error: 'flow_ids must be a non-empty array' });
   }
@@ -360,42 +382,43 @@ router.post('/batch-run', catchAsync(async (req, res) => {
 
   // One shared token for the whole batch — used for BOTH progress (each flow
   // below gets its own segment under it, polled via GET /runs/:runToken/progress
-  // same as a single run) and cancellation. runFlowAndPersist clears the token
-  // from the cancelledTokens set once each flow finishes (it's written to be
-  // per-run), but that's harmless here: a Cancel click re-adds it regardless
-  // of timing, and the explicit check at the top of the loop below catches it
-  // at the next flow boundary even if it landed in the gap between two flows.
+  // same as a single run) and cancellation. runOneBatchFlow passes ownsToken:
+  // false so the token isn't cleared until the WHOLE batch is done (see the
+  // finally block below) — for a Parallel batch several flows share it AT
+  // THE SAME TIME, and one finishing (cancelled or not) clearing it early
+  // would erase the cancellation flag out from under a sibling still running.
   initProgress(run_token);
-  const results = [];
-  let carryVariables = {};
+  let results;
   try {
-    for (const flowId of flow_ids) {
-      if (isCancelled(run_token)) break;
-
-      const flowResult = await pool.query('SELECT * FROM flows WHERE id=$1', [flowId]);
-      const flow = flowResult.rows[0];
-      if (!flow) {
-        results.push({ flow_id: flowId, error: 'Flow not found' });
-        continue;
+    if (parallel) {
+      // Flows run independently — no variable chaining between them (there's
+      // no "previous flow" once they're all in flight at once), and one
+      // flow's hard failure (a thrown error, not just a FAIL/ERROR step
+      // result) shouldn't take the rest down with it, hence allSettled
+      // instead of Promise.all.
+      const settled = await Promise.allSettled(
+        flow_ids.map((flowId) => runOneBatchFlow(flowId, environment, triggered_by, {}, run_token))
+      );
+      results = settled.map((s, i) => (
+        s.status === 'fulfilled' ? s.value : { flow_id: flow_ids[i], error: s.reason?.message || 'Unexpected error' }
+      ));
+    } else {
+      results = [];
+      let carryVariables = {};
+      for (const flowId of flow_ids) {
+        if (isCancelled(run_token)) break;
+        const r = await runOneBatchFlow(flowId, environment, triggered_by, carryVariables, run_token);
+        if (r.variables) carryVariables = r.variables; // hand off to the next flow in the batch
+        results.push(r);
+        if (r.flow_run?.status === 'CANCELLED') break;
       }
-
-      const stepsResult = await pool.query('SELECT * FROM flow_steps WHERE flow_id=$1 ORDER BY step_order', [flow.id]);
-      const stepsToRun = stepsResult.rows.filter((s) => s.enabled !== false);
-      if (stepsToRun.length === 0) {
-        results.push({ flow_id: flow.id, flow_name: flow.name, error: 'Flow has no enabled steps' });
-        continue;
-      }
-
-      const result = await runFlowAndPersist(flow, stepsToRun, environment, triggered_by, null, carryVariables, run_token);
-      carryVariables = result.variables; // hand off to the next flow in the batch
-      results.push({ flow_id: flow.id, flow_name: flow.name, flow_run: result.flow_run, steps: result.steps });
-      if (result.flow_run.status === 'CANCELLED') break;
     }
   } finally {
     clearProgress(run_token);
+    clearToken(run_token);
   }
 
-  res.json({ results });
+  res.json({ results: results.map(({ variables, ...r }) => r) });
 }));
 
 // Run history for a flow (for a simple list; use /api/flow-runs/:id for full detail)

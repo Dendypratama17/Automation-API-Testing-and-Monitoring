@@ -26,11 +26,22 @@ function startFlowSegment(token, flowId, flowName) {
   const segments = progressByToken.get(token);
   if (segments) segments.push({ flow_id: flowId, flow_name: flowName, steps: [] });
 }
-function pushProgress(token, stepResult) {
+// Finds THIS flow's own segment rather than assuming "whichever one was
+// started last" — several flows in a parallel batch can be appending steps
+// at the same time, so "last" wouldn't reliably mean "mine" once more than
+// one is in flight at once. Searches from the end so a re-run of the same
+// flow_id within one token (shouldn't normally happen, but not assumed
+// impossible) attributes to its own most-recently-started segment.
+function pushProgress(token, flowId, stepResult) {
   if (!token) return;
   const segments = progressByToken.get(token);
-  if (!segments || segments.length === 0) return;
-  segments[segments.length - 1].steps.push(stepResult);
+  if (!segments) return;
+  for (let i = segments.length - 1; i >= 0; i--) {
+    if (segments[i].flow_id === flowId) {
+      segments[i].steps.push(stepResult);
+      return;
+    }
+  }
 }
 function getProgress(token) {
   return progressByToken.get(token) || [];

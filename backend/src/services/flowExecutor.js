@@ -565,7 +565,7 @@ async function executeFlow(flow, steps, environment, previousSchemas = {}, authC
     let batchFailed = false;
     for (const { stepResult, extractedVariables } of results) {
       stepResults.push(stepResult);
-      pushProgress(progressToken, stepResult);
+      pushProgress(progressToken, flow.id, stepResult);
       variables = { ...variables, ...extractedVariables };
       if (SEVERITY[stepResult.status] > SEVERITY[overallStatus]) overallStatus = stepResult.status;
       if (['FAIL', 'ERROR'].includes(stepResult.status)) batchFailed = true;

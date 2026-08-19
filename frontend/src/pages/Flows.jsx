@@ -536,9 +536,18 @@ export default function Flows() {
   // live-progress polling, and (see handleCancelRun) cancellation too. This
   // just distinguishes the "Running…" label/steps grouping from a single run.
   const [runningIsBatch, setRunningIsBatch] = useState(false);
+  // Snapshotted at run-start (not read live off runParallel) so the Cancel
+  // tooltip and any other in-progress messaging stay accurate even if the
+  // toggle above gets flipped while this run is still going.
+  const [runningParallel, setRunningParallel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [runningStepId, setRunningStepId] = useState(null);
   const [selectedFlowIds, setSelectedFlowIds] = useState(new Set());
+  // Serial (default) chains each flow's extracted variables into the next —
+  // parallel drops that chaining (there's no "previous flow" once they're
+  // all in flight together) in exchange for wall-clock speed, so it's only
+  // safe for a selection of flows that don't depend on each other's output.
+  const [runParallel, setRunParallel] = useState(false);
   const [batchRunResult, setBatchRunResult] = useState(null);
   const [draggedFlowId, setDraggedFlowId] = useState(null);
   const [dragOverFlowId, setDragOverFlowId] = useState(null);
@@ -1239,13 +1248,14 @@ export default function Flows() {
     }
   };
 
-  // Runs every selected flow in sequence against one environment, chaining
-  // each flow's extracted variables into the next (e.g. Login then Get
-  // Profile reusing the token Login extracted) — see routes/flows.js /batch-run.
-  // No separate "batch environment" picker — reuses whichever environment is
-  // already set on each selected flow's own Flow List row, which all have to
-  // agree for the chain to make sense (a token extracted from a STG run
-  // shouldn't get reused against RC).
+  // Runs every selected flow against one environment — serial (default)
+  // chains each flow's extracted variables into the next (e.g. Login then
+  // Get Profile reusing the token Login extracted), parallel runs them all
+  // at once with no chaining (see runParallel) — see routes/flows.js
+  // /batch-run. No separate "batch environment" picker — reuses whichever
+  // environment is already set on each selected flow's own Flow List row,
+  // which all have to agree (a token extracted from a STG run shouldn't get
+  // reused against RC, and running two envs at once wouldn't mean anything).
   const handleBatchRun = async (confirmProd = false) => {
     const selected = flows.filter((f) => selectedFlowIds.has(f.id));
     if (selected.some((f) => !flowEnvIds[f.id])) {
@@ -1266,6 +1276,7 @@ export default function Flows() {
     const runToken = crypto.randomUUID();
     setRunningToken(runToken);
     setRunningIsBatch(true);
+    setRunningParallel(runParallel);
     setRunResult(null);
     setBatchRunResult(null);
     setError('');
@@ -1279,6 +1290,7 @@ export default function Flows() {
         environment_id: envIds[0],
         confirm_prod: confirmProd,
         run_token: runToken,
+        parallel: runParallel,
       });
       setBatchRunResult(res);
     } catch (err) {
@@ -1405,14 +1417,25 @@ export default function Flows() {
               <h4 style={{ margin: 0 }}>Flow List</h4>
               <div className="toolbar">
                 {selectedFlowIds.size > 0 && (
-                  <button
-                    className="btn-primary"
-                    onClick={() => handleBatchRun()}
-                    disabled={running}
-                    title="Uses whichever environment is already set on each selected flow's row — they all have to match."
-                  >
-                    Run Selected ({selectedFlowIds.size})
-                  </button>
+                  <>
+                    <select
+                      value={runParallel ? 'parallel' : 'serial'}
+                      onChange={(e) => setRunParallel(e.target.value === 'parallel')}
+                      disabled={running}
+                      title="Serial chains each flow's extracted variables into the next (e.g. Login then reuse its token) — Parallel runs every selected flow at once, faster, but only makes sense when they don't depend on each other."
+                    >
+                      <option value="serial">Serial</option>
+                      <option value="parallel">Parallel</option>
+                    </select>
+                    <button
+                      className="btn-primary"
+                      onClick={() => handleBatchRun()}
+                      disabled={running}
+                      title="Uses whichever environment is already set on each selected flow's row — they all have to match."
+                    >
+                      Run Selected ({selectedFlowIds.size})
+                    </button>
+                  </>
                 )}
                 <button className={`btn-primary${editingFlow ? '' : ' btn-ready'}`} onClick={openNewFlow}>+ New Flow</button>
               </div>
@@ -1477,7 +1500,7 @@ export default function Flows() {
                       >
                         <option value="">Select env...</option>
                         {environments.map((env) => (
-                          <option key={env.id} value={env.id}>{env.name}{env.is_protected ? ' 🔐' : ''}</option>
+                          <option key={env.id} value={env.id}>{env.name}{env.is_protected ? '' : ''}</option>
                         ))}
                       </select>
                     </td>
@@ -2076,7 +2099,9 @@ export default function Flows() {
                       disabled={cancelling}
                       onClick={handleCancelRun}
                       title={runningIsBatch
-                        ? "Stops the batch at the next flow boundary — whichever flow is currently running finishes its own current step batch first, and flows already completed are kept."
+                        ? (runningParallel
+                          ? "Stops every still-running flow at its own next step boundary — flows that already finished are kept."
+                          : "Stops the batch at the next flow boundary — whichever flow is currently running finishes its own current step batch first, and flows already completed are kept.")
                         : 'Stops the run at the next step boundary — whatever already completed is kept.'}
                     >
                       Cancel

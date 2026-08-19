@@ -29,7 +29,7 @@ function sanitizeBodyForStorage(body) {
  * overall result warrants it. Shared by the manual run route and the cron
  * scheduler so both go through the exact same path.
  */
-async function runFlowAndPersist(flow, steps, environment, triggeredBy, scheduleId = null, initialVariables = {}, runToken = null, progressToken = runToken) {
+async function runFlowAndPersist(flow, steps, environment, triggeredBy, scheduleId = null, initialVariables = {}, runToken = null, progressToken = runToken, ownsToken = true) {
   const previousSchemas = {};
   for (const step of steps) {
     if (step.endpoint_id) {
@@ -79,11 +79,16 @@ async function runFlowAndPersist(flow, steps, environment, triggeredBy, schedule
   try {
     execution = await executeFlow(flow, steps, environment, previousSchemas, authCredentials, initialVariables, runToken, progressToken);
   } finally {
-    // Done either way — a stale token left in the set would just sit there
-    // uselessly (it can never be reused once this run's execution has
-    // ended), so it's cleared regardless of whether it was ever cancelled.
-    // Cancellation is still per-run (not per-batch), so this stays here.
-    clearToken(runToken);
+    // ownsToken is false for a Batch Run: several of these calls share one
+    // token (serially, or — for a Parallel batch — several genuinely AT ONCE),
+    // so clearing it here the moment THIS flow finishes would erase the
+    // cancellation flag while a sibling flow that hasn't reached its own
+    // isCancelled check yet is still relying on it (confirmed: cancelling a
+    // parallel batch right at the start still let one flow run to completion
+    // because another flow's near-instant CANCELLED exit cleared the token
+    // out from under it). The caller clears it exactly once, after the whole
+    // batch is done, same as clearProgress.
+    if (ownsToken) clearToken(runToken);
   }
 
   // The run right before this one, for the same schedule (or the same
