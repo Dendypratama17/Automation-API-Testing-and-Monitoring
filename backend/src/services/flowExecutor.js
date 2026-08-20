@@ -377,11 +377,15 @@ async function runStep(step, baseVariables, flow, authCredentials, previousSchem
   // uniquely trace each individual call, even across steps in the same run.
   // {{random}} is a short random string for body/URL fields that need a
   // unique value on every run (e.g. a document title) without wiring up an
-  // Extract Variable rule just for that.
+  // Extract Variable rule just for that. {{timestamp}} is the real
+  // wall-clock time this exact request is about to fire (Unix seconds),
+  // not the flow's start time — e.g. a signature/nonce field some APIs
+  // require to be genuinely current.
   const variables = {
     ...baseVariables,
     request_id: crypto.randomUUID(),
     random: crypto.randomBytes(4).toString('hex'),
+    timestamp: String(Math.floor(Date.now() / 1000)),
   };
 
   const url = resolveDeep(step.url_template, variables);

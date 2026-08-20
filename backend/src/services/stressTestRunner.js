@@ -31,6 +31,7 @@ async function sendOneRequest(endpoint, environment, authHeaderValue) {
     ...(environment.variables || {}),
     request_id: crypto.randomUUID(),
     random: crypto.randomBytes(4).toString('hex'),
+    timestamp: String(Math.floor(Date.now() / 1000)),
   };
   const url = resolveDeep(endpoint.path_template, variables);
   const headers = resolveDeep(activeHeaders(endpoint.headers), variables);
