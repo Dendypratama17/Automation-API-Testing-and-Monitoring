@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   getFolders, createFolder, updateFolder, deleteFolder,
   getEndpoints, updateEndpoint, deleteEndpoint, duplicateEndpoint, reorderEndpoints,
-  getEnvironments, getAuthCredentials, runStressTest,
+  getEnvironments, getAuthCredentials, runStressTest, sendDocumentToTelegram,
 } from '../api/client';
+import { exportStressTestToPdf, getStressTestPdfBase64 } from '../utils/exportStressTestPdf.js';
 import KeyValueEditor, { objectToRows, rowsToObject } from '../components/KeyValueEditor.jsx';
 import FormDataEditor, { objectToFormRows, formRowsToObject } from '../components/FormDataEditor.jsx';
 import Environments from './Environments.jsx';
@@ -20,7 +21,7 @@ import JsonPasteEditor from '../components/JsonPasteEditor.jsx';
 function resourcePath(template) {
   return template.replace(/^\{\{base_url\}\}/, '') || '/';
 }
-import { TrashIcon, EditIcon, GripIcon, FolderIcon, CopyIcon, ZapIcon } from '../components/icons.jsx';
+import { TrashIcon, EditIcon, GripIcon, FolderIcon, CopyIcon, ZapIcon, DownloadIcon, SendIcon } from '../components/icons.jsx';
 import OptionsMenu from '../components/OptionsMenu.jsx';
 import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
 import { groupByEnv } from '../utils/envBadge.js';
@@ -68,6 +69,12 @@ export default function Endpoints() {
   const [stressRunning, setStressRunning] = useState(false);
   const [stressResult, setStressResult] = useState(null);
   const [stressError, setStressError] = useState('');
+  // Snapshotted at the moment a run actually finishes — not read live off
+  // stressForm at export time, since the form's env/credential/counts could
+  // have been changed since (about to run a new test) while the last
+  // result is still showing.
+  const [stressRanWith, setStressRanWith] = useState(null);
+  const [sharingStressTest, setSharingStressTest] = useState(false);
 
   const loadFolders = () => getFolders('endpoint').then(setFolders);
   // Guards against out-of-order responses — React.StrictMode double-invokes
@@ -97,7 +104,27 @@ export default function Endpoints() {
     setEditing(null);
     setStressTarget(ep);
     setStressResult(null);
+    setStressRanWith(null);
     setStressError('');
+  };
+
+  const handleExportStressTestPdf = () => exportStressTestToPdf(stressRanWith);
+
+  const handleShareStressTestToTelegram = async () => {
+    setSharingStressTest(true);
+    try {
+      const { base64, filename } = getStressTestPdfBase64(stressRanWith);
+      await sendDocumentToTelegram({
+        filename,
+        caption: `Stress Test: ${stressRanWith.endpoint.method} ${stressRanWith.endpoint.name} — ${stressRanWith.result.pass_count}/${stressRanWith.result.total_requests} passed`,
+        fileBase64: base64,
+      });
+      showToast('Sent to Telegram.');
+    } catch (err) {
+      showToast(err.response?.data?.error || err.message, 'error');
+    } finally {
+      setSharingStressTest(false);
+    }
   };
 
   const handleRunStressTest = async (confirmProd = false) => {
@@ -127,6 +154,15 @@ export default function Endpoints() {
         confirm_prod: confirmProd,
       });
       setStressResult(result);
+      setStressRanWith({
+        endpoint: stressTarget,
+        environment: environments.find((e) => e.id === Number(stressForm.environment_id)),
+        credentialName: stressForm.auth_credential_id
+          ? authCredentials.find((c) => c.id === Number(stressForm.auth_credential_id))?.name
+          : null,
+        config: { total_requests: total, concurrency: conc },
+        result,
+      });
     } catch (err) {
       if (err.response?.status === 412) {
         if (await confirm(err.response.data.message + ' Continue?')) {
@@ -423,7 +459,19 @@ export default function Endpoints() {
             <div className="card">
               <div className="card-row">
                 <h4 style={{ margin: 0 }}>Stress Test: {stressTarget.method} {stressTarget.name}</h4>
-                <button className="btn-quiet" onClick={() => setStressTarget(null)}>✕ Close</button>
+                <div className="toolbar">
+                  {stressRanWith && (
+                    <OptionsMenu
+                      label="Export"
+                      title="Download this stress test result as a PDF, or share it straight to Telegram"
+                      items={[
+                        { label: 'Download PDF', icon: <DownloadIcon />, onClick: handleExportStressTestPdf },
+                        { label: sharingStressTest ? 'Sharing...' : 'Share to Telegram', icon: <SendIcon />, onClick: handleShareStressTestToTelegram, disabled: sharingStressTest },
+                      ]}
+                    />
+                  )}
+                  <button className="btn-quiet" onClick={() => setStressTarget(null)}>✕ Close</button>
+                </div>
               </div>
               <p className="hint" style={{ marginTop: 4, fontSize: 12.5 }}>
                 Fires real requests at this endpoint — {STRESS_MAX_TOTAL_REQUESTS} requests / {STRESS_MAX_CONCURRENCY} concurrency max.
