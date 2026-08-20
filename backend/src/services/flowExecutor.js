@@ -239,7 +239,14 @@ function coercePrimitive(str) {
   if (str === 'true') return true;
   if (str === 'false') return false;
   if (str === 'null') return null;
-  if (str.trim() !== '' && !Number.isNaN(Number(str))) return Number(str);
+  const trimmed = str.trim();
+  // Only coerce when the number round-trips back to the exact same text —
+  // "42" -> 42 -> "42" is safe, but "194.250" -> 194.25 -> "194.25" isn't:
+  // that trailing zero (or a leading one, like "007") is often significant
+  // in the actual field being compared (e.g. an amount extracted with "."
+  // as a thousands separator, or a zero-padded code), not a real decimal.
+  // Comparing it as a number would silently assert against the wrong value.
+  if (trimmed !== '' && !Number.isNaN(Number(trimmed)) && String(Number(trimmed)) === trimmed) return Number(trimmed);
   return str;
 }
 

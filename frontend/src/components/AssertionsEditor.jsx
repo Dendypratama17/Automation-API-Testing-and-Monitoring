@@ -46,7 +46,14 @@ export function objectToAssertionRows(assertions) {
 function coerceExpected(value) {
   if (value === 'true') return true;
   if (value === 'false') return false;
-  if (value.trim() !== '' && !Number.isNaN(Number(value))) return Number(value);
+  const trimmed = value.trim();
+  // Only coerce when the number round-trips back to the exact same text —
+  // "42" -> 42 -> "42" is safe, but "194.250" -> 194.25 -> "194.25" isn't:
+  // that trailing zero (or a leading one, like "007") is often significant
+  // in the actual field being compared (e.g. an amount formatted with "."
+  // as a thousands separator, or a zero-padded code), not a real decimal.
+  // Comparing it as a number would silently assert against the wrong value.
+  if (trimmed !== '' && !Number.isNaN(Number(trimmed)) && String(Number(trimmed)) === trimmed) return Number(trimmed);
   return value;
 }
 
