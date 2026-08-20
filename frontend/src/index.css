@@ -216,23 +216,14 @@ button.btn-look-disabled { opacity: 0.4; }
 button.btn-look-disabled:hover { background: var(--accent); border-color: var(--accent); }
 /* Draws the eye to whichever action is "the next thing to do" (Save Flow
    once every required field is filled, + New Flow when nothing's selected,
-   Run Selected once something is) — a diagonal streak of light sweeping
-   across the button on a loop, layered over a soft ambient glow so it still
-   reads as "ready", not error. The glow color follows the button's own
-   background (--btn-ready-glow, overridden below per button variant) so it
-   doesn't clash — e.g. a purple glow would look wrong on the green
-   Run Selected button. */
+   Run Selected once something is) — just a diagonal streak of light
+   sweeping across the button on a loop. No pulsing glow anymore — it read
+   as too "blinking"; the moving sweep alone still reads as "ready". */
 button.btn-ready {
-  --btn-ready-glow: rgba(109, 106, 246, 0.5);
   position: relative;
   overflow: hidden;
   isolation: isolate;
-  animation: btn-ready-glow 1.8s ease-in-out infinite;
 }
-/* Run Selected keeps only the moving light sweep (::after, untouched below)
-   — the pulsing glow reads as too "blinking" against a solid green fill, so
-   it's turned off here instead of just re-colored. */
-button.btn-success.btn-ready { animation: none; }
 button.btn-ready::after {
   content: '';
   position: absolute;
@@ -247,10 +238,6 @@ button.btn-ready::after {
 @keyframes btn-ready-sweep {
   0% { transform: translateX(-150%); }
   55%, 100% { transform: translateX(350%); }
-}
-@keyframes btn-ready-glow {
-  0%, 100% { box-shadow: 0 0 0 0 var(--btn-ready-glow); }
-  50% { box-shadow: 0 0 14px 4px var(--btn-ready-glow); }
 }
 
 button.btn-success { background: #1f8f68; border-color: #1f8f68; color: #eafff5; }
