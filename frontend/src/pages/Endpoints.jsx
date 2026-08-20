@@ -101,13 +101,39 @@ export default function Endpoints() {
     getAuthCredentials().then(setAuthCredentials);
   }, []);
 
+  // Bumped on every openStressTest/handleRunStressTest call so a run whose
+  // request is still in flight when the user switches to a DIFFERENT
+  // endpoint's panel (or starts another run) can tell it's been superseded
+  // once it finally resolves, instead of clobbering whatever's now on screen
+  // with its now-irrelevant result.
+  const stressRunGeneration = useRef(0);
+
+  // Shared by switching to a different endpoint's panel and closing it
+  // outright — either way, a run still in flight for the panel being left
+  // behind needs to stop (best-effort; nothing shows its result anymore
+  // either way) and its eventual response must not be applied once it
+  // arrives (see the generation check in handleRunStressTest).
+  const abandonStressTest = () => {
+    if (stressRunToken) cancelStressTest(stressRunToken).catch(() => {});
+    stressRunGeneration.current += 1;
+    setStressRunning(false);
+    setStressRunToken(null);
+    setStressCancelling(false);
+  };
+
   const openStressTest = (ep) => {
+    abandonStressTest();
     setViewing(null);
     setEditing(null);
     setStressTarget(ep);
     setStressResult(null);
     setStressRanWith(null);
     setStressError('');
+  };
+
+  const closeStressTest = () => {
+    abandonStressTest();
+    setStressTarget(null);
   };
 
   const handleExportStressTestPdf = () => exportStressTestToPdf(stressRanWith);
@@ -144,6 +170,13 @@ export default function Endpoints() {
     }
     if (conc > total) { setStressError('Concurrency cannot exceed total requests.'); return; }
 
+    // Captured now (not read fresh from stressTarget later) and guarded by
+    // generation below — if the user switches to a different endpoint's
+    // panel (or starts another run) while this one's request is still in
+    // flight, its eventual result is for a target/panel that's no longer
+    // current and must not overwrite whatever's showing now.
+    const targetEndpoint = stressTarget;
+    const myGeneration = ++stressRunGeneration.current;
     setStressRunning(true);
     setStressCancelling(false);
     setStressResult(null);
@@ -154,7 +187,7 @@ export default function Endpoints() {
     setStressRunToken(runToken);
     try {
       const result = await runStressTest({
-        endpoint_id: stressTarget.id,
+        endpoint_id: targetEndpoint.id,
         environment_id: Number(stressForm.environment_id),
         auth_credential_id: stressForm.auth_credential_id ? Number(stressForm.auth_credential_id) : null,
         total_requests: total,
@@ -162,9 +195,10 @@ export default function Endpoints() {
         confirm_prod: confirmProd,
         run_token: runToken,
       });
+      if (myGeneration !== stressRunGeneration.current) return;
       setStressResult(result);
       setStressRanWith({
-        endpoint: stressTarget,
+        endpoint: targetEndpoint,
         environment: environments.find((e) => e.id === Number(stressForm.environment_id)),
         credentialName: stressForm.auth_credential_id
           ? authCredentials.find((c) => c.id === Number(stressForm.auth_credential_id))?.name
@@ -173,6 +207,7 @@ export default function Endpoints() {
         result,
       });
     } catch (err) {
+      if (myGeneration !== stressRunGeneration.current) return;
       if (err.response?.status === 412) {
         if (await confirm(err.response.data.message + ' Continue?')) {
           await handleRunStressTest(true);
@@ -182,9 +217,11 @@ export default function Endpoints() {
         setStressError(err.response?.data?.error || err.message);
       }
     } finally {
-      setStressRunning(false);
-      setStressRunToken(null);
-      setStressCancelling(false);
+      if (myGeneration === stressRunGeneration.current) {
+        setStressRunning(false);
+        setStressRunToken(null);
+        setStressCancelling(false);
+      }
     }
   };
 
@@ -492,7 +529,7 @@ export default function Endpoints() {
                       ]}
                     />
                   )}
-                  <button className="btn-quiet" onClick={() => setStressTarget(null)}>✕ Close</button>
+                  <button className="btn-quiet" onClick={closeStressTest}>✕ Close</button>
                 </div>
               </div>
               <p className="hint" style={{ marginTop: 4, fontSize: 12.5 }}>
@@ -554,22 +591,20 @@ export default function Endpoints() {
                   className="btn-primary"
                   onClick={() => handleRunStressTest()}
                   disabled={stressRunning}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8 }}
                 >
-                  Run Stress Test
+                  {stressRunning && <span className="spinner" />}
+                  {stressRunning ? (stressCancelling ? 'Cancelling…' : 'Running…') : 'Run Stress Test'}
                 </button>
                 {stressRunning && (
-                  <>
-                    <span className="spinner" />
-                    <span className="hint">{stressCancelling ? 'Cancelling…' : 'Running…'}</span>
-                    <button
-                      className="btn-quiet"
-                      onClick={handleCancelStressTest}
-                      disabled={stressCancelling}
-                      title="Stops the test at the next request boundary — requests already sent are kept."
-                    >
-                      Cancel
-                    </button>
-                  </>
+                  <button
+                    className="btn-quiet"
+                    onClick={handleCancelStressTest}
+                    disabled={stressCancelling}
+                    title="Stops the test at the next request boundary — requests already sent are kept."
+                  >
+                    Cancel
+                  </button>
                 )}
               </div>
 
