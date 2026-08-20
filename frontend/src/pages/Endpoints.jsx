@@ -94,6 +94,20 @@ export default function Endpoints() {
   const [sharingStressTest, setSharingStressTest] = useState(false);
   const [stressRunToken, setStressRunToken] = useState(null);
   const [stressCancelling, setStressCancelling] = useState(false);
+  const stressPanelRef = useRef(null);
+
+  // Opening the panel (from an endpoint row's Options menu) scrolls it into
+  // view immediately — otherwise it renders at the bottom of a long
+  // endpoint list, off-screen, and looks like nothing happened.
+  useEffect(() => {
+    if (stressTarget) stressPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [stressTarget]);
+  // A finished run's result renders below the form, further down the same
+  // panel — scroll again once it lands so it's not left just past the
+  // bottom edge of what the first scroll already brought into view.
+  useEffect(() => {
+    if (stressResult) stressPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [stressResult]);
 
   const loadFolders = () => getFolders('endpoint').then(setFolders);
   // Guards against out-of-order responses — React.StrictMode double-invokes
@@ -532,7 +546,7 @@ export default function Endpoints() {
           )}
 
           {stressTarget && (
-            <div className="card">
+            <div className="card" ref={stressPanelRef}>
               <div className="card-row">
                 <h4 style={{ margin: 0 }}>Stress Test: {stressTarget.method} {stressTarget.name}</h4>
                 <div className="toolbar">
