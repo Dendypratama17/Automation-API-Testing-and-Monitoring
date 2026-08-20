@@ -93,6 +93,17 @@ function describeConnectionError(err) {
 function resolveDeep(value, variables) {
   if (typeof value === 'string') {
     let resolved = value;
+    // {{timestamp+120}} / {{timestamp-60}} — N is a signed offset in SECONDS
+    // from right now (e.g. +120 for "2 minutes from now"), computed fresh at
+    // resolution time same as plain {{timestamp}}. Handled before the normal
+    // substitution loop below since the offset varies per use, so it can't
+    // just be one more fixed entry in `variables` the way {{timestamp}}
+    // itself is — "{{timestamp}} + 120" (as a separate, literal suffix)
+    // would NOT work here, since this only does string substitution, not
+    // arithmetic on the result.
+    resolved = resolved.replace(/\{\{timestamp([+-]\d+)\}\}/g, (_, offsetSeconds) => (
+      formatTimestampWIB(new Date(Date.now() + Number(offsetSeconds) * 1000))
+    ));
     for (const [key, val] of Object.entries(variables)) {
       resolved = resolved.replace(new RegExp(`{{${key}}}`, 'g'), val ?? '');
     }
