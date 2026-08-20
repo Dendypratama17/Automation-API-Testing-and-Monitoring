@@ -525,10 +525,16 @@ export default function Endpoints() {
                     style={{ width: 70 }}
                   />
                 </label>
-                <button className="btn-primary" onClick={() => handleRunStressTest()} disabled={stressRunning}>
-                  {stressRunning ? 'Running...' : 'Run Stress Test'}
-                </button>
               </div>
+
+              <button
+                className="btn-primary"
+                onClick={() => handleRunStressTest()}
+                disabled={stressRunning}
+                style={{ marginTop: 14 }}
+              >
+                {stressRunning ? 'Running...' : 'Run Stress Test'}
+              </button>
 
               {stressError && <div className="error-text" style={{ marginTop: 12 }}>{stressError}</div>}
 
