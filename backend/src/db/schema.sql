@@ -153,6 +153,12 @@ ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS delay_ms INT NOT NULL DEFAULT 0;
 -- — e.g. testing two endpoints that legitimately need to be hit at the same
 -- moment, like a sign and a reject racing each other.
 ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS parallel_with_previous BOOLEAN NOT NULL DEFAULT FALSE;
+-- NULL (default) means "always run" — set means this step only actually
+-- fires its request if the IMMEDIATELY PRECEDING step's response status
+-- code equals this value; otherwise it's recorded as SKIPPED without ever
+-- being sent (see flowExecutor.js). Forces its own batch (never
+-- parallel_with_previous) since it needs that step's real outcome first.
+ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS run_condition_status_code INT;
 
 CREATE TABLE IF NOT EXISTS flow_runs (
   id SERIAL PRIMARY KEY,

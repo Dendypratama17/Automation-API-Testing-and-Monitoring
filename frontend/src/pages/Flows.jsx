@@ -183,7 +183,13 @@ function StepResultRow({ step, isLast }) {
         <div
           style={{
             marginTop: 10, padding: '8px 12px', borderRadius: 8,
-            background: 'var(--fail-bg)', color: 'var(--fail)', fontSize: 12.5,
+            fontSize: 12.5,
+            // A skip isn't a failure — the message just explains why this
+            // step's request was never sent, so it gets the same neutral
+            // styling as the SKIPPED badge instead of reading as an error.
+            ...(step.status === 'SKIPPED'
+              ? { background: 'var(--surface-2)', color: 'var(--text-muted)' }
+              : { background: 'var(--fail-bg)', color: 'var(--fail)' }),
           }}
         >
           {failureReasons.map((reason, i) => <div key={i}>{reason}</div>)}
@@ -290,6 +296,7 @@ const emptyStep = (defaultHeaders = []) => {
     bodyType: 'json', bodyText: '', bodyRows: [emptyFormRow()],
     extractRows: [], assertionsRows: [], enabled: true, delayMs: '',
     parallelWithPrevious: false,
+    runConditionStatusCode: '',
   };
 };
 
@@ -326,6 +333,9 @@ function stepToPayload(step, endpoints) {
     enabled: step.enabled !== false,
     delay_ms: step.delayMs ? Number(step.delayMs) : 0,
     parallel_with_previous: step.parallelWithPrevious === true,
+    run_condition_status_code: step.runConditionStatusCode !== '' && step.runConditionStatusCode != null
+      ? Number(step.runConditionStatusCode)
+      : null,
   };
 }
 
@@ -477,6 +487,7 @@ function stepFromApi(s) {
     enabled: s.enabled !== false,
     delayMs: s.delay_ms ? String(s.delay_ms) : '',
     parallelWithPrevious: s.parallel_with_previous === true,
+    runConditionStatusCode: s.run_condition_status_code != null ? String(s.run_condition_status_code) : '',
   };
 }
 
@@ -752,6 +763,17 @@ export default function Flows() {
   const handleStepChange = (idx, field, value) => {
     const steps = [...editingFlow.steps];
     steps[idx] = { ...steps[idx], [field]: value };
+    setEditingFlow({ ...editingFlow, steps });
+  };
+
+  // A run condition needs the previous step's REAL, already-finished result
+  // to decide anything — incompatible with running at the same time as it
+  // (see groupIntoBatches on the backend, which forces its own batch either
+  // way), so setting one here also turns that checkbox off instead of
+  // leaving it checked-but-silently-ignored.
+  const handleRunConditionChange = (idx, value) => {
+    const steps = [...editingFlow.steps];
+    steps[idx] = { ...steps[idx], runConditionStatusCode: value, parallelWithPrevious: value ? false : steps[idx].parallelWithPrevious };
     setEditingFlow({ ...editingFlow, steps });
   };
 
@@ -2012,9 +2034,26 @@ export default function Flows() {
                           type="checkbox"
                           checked={step.parallelWithPrevious === true}
                           onChange={(e) => handleStepChange(idx, 'parallelWithPrevious', e.target.checked)}
+                          disabled={!!step.runConditionStatusCode}
                         />
                         Run this step at the same time as the previous one, instead of waiting for it to finish
                       </label>
+                    )}
+
+                    {idx > 0 && (
+                      <div className="toolbar" style={{ marginBottom: 8, flexWrap: 'nowrap' }}>
+                        <label className="hint" style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}>
+                          Only run if previous step's status code is
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="Always run"
+                          value={step.runConditionStatusCode}
+                          onChange={(e) => handleRunConditionChange(idx, e.target.value)}
+                          style={{ width: 90 }}
+                          title="Leave empty to always run this step. When set, this step is recorded as SKIPPED (never sent) unless the immediately preceding step's response status code equals this value."
+                        />
+                      </div>
                     )}
 
                     {(step.endpoint_id || step.url_template) && (

@@ -4,7 +4,10 @@ const { generateSchema, diffSchema } = require('./schemaTool');
 const { isCancelled } = require('./runCancellation');
 const { pushProgress } = require('./runProgress');
 
-const SEVERITY = { PASS: 0, SCHEMA_DRIFT: 1, FAIL: 2, ERROR: 3 };
+// SKIPPED ranks below PASS on purpose — a step deliberately not run (its
+// run condition wasn't met) shouldn't drag an otherwise-passing flow's
+// overall status down to something that reads as a problem.
+const SEVERITY = { SKIPPED: -1, PASS: 0, SCHEMA_DRIFT: 1, FAIL: 2, ERROR: 3 };
 
 // A header row unchecked in the editor is saved as { __disabled__: true, value }
 // instead of being dropped (see KeyValueEditor.jsx) so it can still be shown
@@ -514,11 +517,14 @@ async function runStep(step, baseVariables, flow, authCredentials, previousSchem
 // joins the batch its predecessor is in instead of starting a new one, so
 // e.g. steps 5-6-7 all flagged this way become a single 3-way-concurrent
 // batch, not three separate pairs. A step without the flag always starts a
-// fresh (initially size-1) batch.
+// fresh (initially size-1) batch. A step with a run_condition_status_code
+// ALWAYS starts its own fresh batch regardless of the flag — it needs the
+// immediately preceding step's real, already-completed result to decide
+// whether to run at all, which isn't available yet if they ran concurrently.
 function groupIntoBatches(steps) {
   const batches = [];
   for (const step of steps) {
-    if (step.parallel_with_previous && batches.length > 0) {
+    if (step.parallel_with_previous && step.run_condition_status_code == null && batches.length > 0) {
       batches[batches.length - 1].push(step);
     } else {
       batches.push([step]);
@@ -565,6 +571,40 @@ async function executeFlow(flow, steps, environment, previousSchemas = {}, authC
     if (isCancelled(runToken)) {
       overallStatus = 'CANCELLED';
       break;
+    }
+
+    // A step with a run_condition_status_code always gets its own batch (see
+    // groupIntoBatches), so the immediately preceding step's real result is
+    // guaranteed to already be the last entry in stepResults — never sent
+    // its request at all if that condition isn't met.
+    const conditionStep = batch.length === 1 ? batch[0] : null;
+    if (conditionStep && conditionStep.run_condition_status_code != null) {
+      const previousStatusCode = stepResults[stepResults.length - 1]?.response_status_code ?? null;
+      if (previousStatusCode !== conditionStep.run_condition_status_code) {
+        const skippedResult = {
+          step_order: conditionStep.step_order,
+          name: conditionStep.name,
+          endpoint_id: conditionStep.endpoint_id || null,
+          status: 'SKIPPED',
+          request_method: conditionStep.method,
+          request_url: null,
+          request_body: null,
+          request_headers: null,
+          request_id: null,
+          response_status_code: null,
+          response_time_ms: 0,
+          response_body: null,
+          error_message: `Skipped — previous step returned ${previousStatusCode ?? 'no status'}, expected ${conditionStep.run_condition_status_code}.`,
+          assertion_results: null,
+          extracted_variables: {},
+          schema: null,
+          schema_diffs: [],
+        };
+        stepResults.push(skippedResult);
+        pushProgress(progressToken, flow.id, skippedResult);
+        if (SEVERITY[skippedResult.status] > SEVERITY[overallStatus]) overallStatus = skippedResult.status;
+        continue;
+      }
     }
 
     const results = await Promise.all(batch.map((step) => runStep(step, variables, flow, authCredentials, previousSchemas)));

@@ -28,7 +28,10 @@ const RANGE_PRESETS = [
 // Colored by the HTTP status code's leading digit — not by the assertion
 // outcome (that's the separate Expected column): 2xx/3xx green, 4xx amber
 // (client error), 5xx red (server error), no response at all purple.
+// SKIPPED never sent a request at all (its run condition wasn't met), so it
+// gets its own neutral "—" instead of reading as a connection error.
 function statusCodeBadge(row) {
+  if (row.status === 'SKIPPED') return <span className="badge skipped">—</span>;
   const code = row.response_status_code;
   let cls;
   if (code == null) cls = 'error';
@@ -42,9 +45,11 @@ function statusCodeBadge(row) {
 // distinct from the Status column, which shows the raw HTTP status code.
 // SCHEMA_DRIFT is its own case, not lumped in with "Failed": the assertions
 // did pass, the response shape just changed from what was seen before.
+// SKIPPED is likewise its own case — deliberately not run, not a failure.
 function expectedBadge(row) {
   if (row.status === 'PASS') return <span className="badge pass">Passed</span>;
   if (row.status === 'SCHEMA_DRIFT') return <span className="badge drift">Drift</span>;
+  if (row.status === 'SKIPPED') return <span className="badge skipped">Skipped</span>;
   return <span className="badge fail">Failed</span>;
 }
 
@@ -459,7 +464,10 @@ export default function Dashboard() {
   // filter itself so both counts stay meaningful regardless of its value.
   const todayFilteredHits = todayRuns.filter((r) => matchesFilters(r, { envFilter, resourceFilter, statusFilter: 'all' }));
   const totalOk = todayFilteredHits.filter((r) => r.status === 'PASS').length;
-  const totalError = todayFilteredHits.length - totalOk;
+  // SKIPPED steps deliberately never sent a request (their run condition
+  // wasn't met) — counting them as errors would inflate this with steps
+  // that behaved exactly as configured.
+  const totalError = todayFilteredHits.filter((r) => !['PASS', 'SKIPPED'].includes(r.status)).length;
 
   const chartData = analytics.map((d) => ({
     day: new Date(d.day).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
