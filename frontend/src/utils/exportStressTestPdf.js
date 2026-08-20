@@ -53,6 +53,37 @@ function buildStressTestPdf(context) {
     return w;
   };
 
+  // A labelled horizontal bar chart — `rows` is [{ label, value, valueLabel,
+  // color }]. Bar length is proportional to `value` against the largest one
+  // in the set (or `maxValue` if given, e.g. total_requests so a status
+  // code's bar reads as its share of the whole run, not just relative to
+  // the other codes). Returns the total height used so the caller can
+  // advance `y` past it.
+  const drawBarChart = (rows, { barHeight = 14, gap = 8, labelWidth = 90, valueWidth = 90, maxValue } = {}) => {
+    const chartWidth = maxWidth - labelWidth - valueWidth;
+    const max = maxValue ?? Math.max(...rows.map((r) => r.value), 1);
+    const startY = y;
+    rows.forEach((row) => {
+      ensureSpace(barHeight + gap);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...INK);
+      const labelLines = doc.splitTextToSize(row.label, labelWidth - 8);
+      doc.text(labelLines[0], margin, y + barHeight - 4);
+      doc.setFillColor(...BOX_BORDER);
+      doc.roundedRect(margin + labelWidth, y, chartWidth, barHeight, 3, 3, 'F');
+      const barW = Math.max(3, (row.value / max) * chartWidth);
+      doc.setFillColor(...row.color);
+      doc.roundedRect(margin + labelWidth, y, barW, barHeight, 3, 3, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...INK);
+      doc.text(row.valueLabel, margin + labelWidth + chartWidth + 8, y + barHeight - 4);
+      y += barHeight + gap;
+    });
+    return y - startY;
+  };
+
   // ---- Header band ----
   doc.setFillColor(10, 12, 17);
   doc.rect(0, 0, pageWidth, 54, 'F');
@@ -114,21 +145,43 @@ function buildStressTestPdf(context) {
   });
   y = metricsTop + 50;
 
-  // ---- Status codes ----
-  ensureSpace(30);
-  addText('Status Codes', { size: 9.5, style: 'bold', color: MUTED, gapBefore: 10 });
+  // ---- Pass / Fail chart ----
+  ensureSpace(50);
+  addText('Pass / Fail', { size: 11, style: 'bold', color: INK, gapBefore: 12 });
+  y += 6;
+  drawBarChart(
+    [
+      { label: 'Passed', value: result.pass_count, valueLabel: `${result.pass_count}`, color: STATUS_COLORS.PASS },
+      { label: 'Failed', value: result.fail_count, valueLabel: `${result.fail_count}`, color: STATUS_COLORS.FAIL },
+    ],
+    { maxValue: result.total_requests }
+  );
+
+  // ---- Latency breakdown chart ----
+  ensureSpace(50);
+  addText('Latency Breakdown', { size: 11, style: 'bold', color: INK, gapBefore: 16 });
+  y += 6;
+  drawBarChart([
+    { label: 'Min', value: result.min_ms, valueLabel: `${result.min_ms}ms`, color: [109, 106, 246] },
+    { label: 'Avg', value: result.avg_ms, valueLabel: `${result.avg_ms}ms`, color: [130, 128, 248] },
+    { label: 'p95', value: result.p95_ms, valueLabel: `${result.p95_ms}ms`, color: [154, 152, 250] },
+    { label: 'Max', value: result.max_ms, valueLabel: `${result.max_ms}ms`, color: [178, 176, 252] },
+  ]);
+
+  // ---- Status codes chart ----
   const codes = Object.entries(result.status_counts);
-  for (const [code, count] of codes) {
-    ensureSpace(14);
-    const isError = code === 'ERROR' || Number(code) >= 400;
-    doc.setFillColor(...(isError ? STATUS_COLORS.FAIL : STATUS_COLORS.PASS));
-    doc.circle(margin + 4, y - 3, 3.5, 'F');
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.5);
-    doc.setTextColor(...INK);
-    doc.text(`${code}: ${count} request${count === 1 ? '' : 's'}`, margin + 14, y);
-    y += 14;
-  }
+  ensureSpace(50);
+  addText('Status Codes', { size: 11, style: 'bold', color: INK, gapBefore: 16 });
+  y += 6;
+  drawBarChart(
+    codes.map(([code, count]) => ({
+      label: code,
+      value: count,
+      valueLabel: `${count} request${count === 1 ? '' : 's'}`,
+      color: (code === 'ERROR' || Number(code) >= 400) ? STATUS_COLORS.FAIL : STATUS_COLORS.PASS,
+    })),
+    { maxValue: result.total_requests }
+  );
 
   // ---- Error samples ----
   if (result.error_samples && result.error_samples.length > 0) {
