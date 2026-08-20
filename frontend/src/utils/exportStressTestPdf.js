@@ -17,6 +17,11 @@ const MUTED = [120, 124, 134];
 const BOX_BG = [244, 245, 248];
 const BOX_BORDER = [222, 225, 231];
 const RULE = [228, 230, 235];
+// A generous, consistent unit for section-to-section breathing room — every
+// gap between major blocks below is a multiple of this instead of one-off
+// numbers, so the page doesn't end up with everything jammed together.
+const SECTION_GAP = 26;
+const CARD_PADDING = 18;
 
 // `context` is { endpoint, environment, credentialName, config: {total_requests,
 // concurrency}, result } — result is exactly what POST /stress-test returns.
@@ -25,9 +30,9 @@ function buildStressTestPdf(context) {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 40;
+  const margin = 46;
   const maxWidth = pageWidth - margin * 2;
-  const footerZone = 30;
+  const footerZone = 34;
   const bottomLimit = pageHeight - margin - footerZone;
   let y = margin;
 
@@ -35,18 +40,6 @@ function buildStressTestPdf(context) {
     if (y + needed > bottomLimit) {
       doc.addPage();
       y = margin;
-    }
-  };
-  const addText = (text, { size = 10, font = 'helvetica', style = 'normal', color = INK, lineGap = 13, gapBefore = 0, indent = 0 } = {}) => {
-    if (gapBefore) y += gapBefore;
-    doc.setFont(font, style);
-    doc.setFontSize(size);
-    doc.setTextColor(...color);
-    const lines = doc.splitTextToSize(String(text), maxWidth - indent);
-    for (const line of lines) {
-      ensureSpace(lineGap);
-      doc.text(line, margin + indent, y);
-      y += lineGap;
     }
   };
 
@@ -78,123 +71,161 @@ function buildStressTestPdf(context) {
   const drawBadge = (text, x, top, color) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
-    const w = doc.getTextWidth(text) + 16;
-    const h = 15;
+    const w = doc.getTextWidth(text) + 18;
+    const h = 17;
     doc.setFillColor(...color);
-    doc.roundedRect(x, top, w, h, 7, 7, 'F');
+    doc.roundedRect(x, top, w, h, 8.5, 8.5, 'F');
     doc.setTextColor(255, 255, 255);
-    doc.text(text, x + 8, top + h / 2 + 3);
+    doc.text(text, x + 9, top + h / 2 + 3);
     return w;
   };
 
-  // A labelled horizontal bar chart — `rows` is [{ label, value, valueLabel,
-  // color }]. Bar length is proportional to `value` against the largest one
-  // in the set (or `maxValue` if given, e.g. total_requests so a status
-  // code's bar reads as its share of the whole run, not just relative to
-  // the other codes).
-  const drawBarChart = (rows, { barHeight = 14, gap = 8, labelWidth = 90, valueWidth = 90, maxValue } = {}) => {
-    const chartWidth = maxWidth - labelWidth - valueWidth;
+  // A labelled horizontal bar chart, drawn inset within a card of its own
+  // (`x`/`width` are the card's own inner content area, not the full page
+  // margin) — `rows` is [{ label, value, valueLabel, color }]. Bar length is
+  // proportional to `value` against the largest one in the set (or
+  // `maxValue`, e.g. total_requests, so a status code's bar reads as its
+  // share of the whole run rather than just relative to the other codes).
+  const drawBarChart = (rows, { x, width, barHeight = 16, gap = 11, labelWidth = 92, valueWidth = 96, maxValue }) => {
+    const chartWidth = width - labelWidth - valueWidth;
     const max = maxValue ?? Math.max(...rows.map((r) => r.value), 1);
     rows.forEach((row) => {
-      ensureSpace(barHeight + gap);
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
+      doc.setFontSize(9.5);
       doc.setTextColor(...INK);
       const labelLines = doc.splitTextToSize(row.label, labelWidth - 8);
-      doc.text(labelLines[0], margin, y + barHeight - 4);
+      doc.text(labelLines[0], x, y + barHeight - 4.5);
       doc.setFillColor(...BOX_BORDER);
-      doc.roundedRect(margin + labelWidth, y, chartWidth, barHeight, 3, 3, 'F');
-      const barW = Math.max(3, (row.value / max) * chartWidth);
+      doc.roundedRect(x + labelWidth, y, chartWidth, barHeight, 4, 4, 'F');
+      const barW = Math.max(4, (row.value / max) * chartWidth);
       doc.setFillColor(...row.color);
-      doc.roundedRect(margin + labelWidth, y, barW, barHeight, 3, 3, 'F');
+      doc.roundedRect(x + labelWidth, y, barW, barHeight, 4, 4, 'F');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
+      doc.setFontSize(9.5);
       doc.setTextColor(...INK);
-      doc.text(row.valueLabel, margin + labelWidth + chartWidth + 8, y + barHeight - 4);
+      doc.text(row.valueLabel, x + labelWidth + chartWidth + 10, y + barHeight - 4.5);
       y += barHeight + gap;
     });
   };
 
+  // A titled, padded card wrapping a bar chart — height is precomputed from
+  // the row count so the background box and its rounded corners are drawn
+  // correctly in one shot before the chart itself renders on top of it.
+  const drawChartCard = (title, rows, opts = {}) => {
+    const barHeight = opts.barHeight ?? 16;
+    const gap = opts.gap ?? 11;
+    const titleBlock = 34;
+    const bottomPad = 6; // absorbs the last row's trailing gap
+    const contentHeight = rows.length * (barHeight + gap) - gap;
+    const boxHeight = CARD_PADDING * 2 + titleBlock + contentHeight + bottomPad;
+    ensureSpace(boxHeight + SECTION_GAP);
+    const boxTop = y;
+    doc.setFillColor(...BOX_BG);
+    doc.setDrawColor(...BOX_BORDER);
+    doc.roundedRect(margin, boxTop, maxWidth, boxHeight, 9, 9, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...INK);
+    doc.text(title, margin + CARD_PADDING, boxTop + CARD_PADDING + 8);
+    y = boxTop + CARD_PADDING + titleBlock;
+    drawBarChart(rows, {
+      x: margin + CARD_PADDING,
+      width: maxWidth - CARD_PADDING * 2,
+      barHeight,
+      gap,
+      labelWidth: opts.labelWidth,
+      valueWidth: opts.valueWidth,
+      maxValue: opts.maxValue,
+    });
+    y = boxTop + boxHeight + SECTION_GAP;
+  };
+
   // One k6-reporter-style "metric card" — a gradient-filled rounded box with
   // a big bold number and an uppercase label, in a row of `count` cards.
-  const drawMetricCards = (cards, top, height = 64) => {
-    const gap = 12;
+  const drawMetricCards = (cards, top, height) => {
+    const gap = 16;
     const cardWidth = (maxWidth - gap * (cards.length - 1)) / cards.length;
     cards.forEach((card, i) => {
       const x = margin + i * (cardWidth + gap);
-      drawGradientRect(x, top, cardWidth, height, GRADIENTS[card.tone], 8);
+      drawGradientRect(x, top, cardWidth, height, GRADIENTS[card.tone], 10);
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
+      doc.setFontSize(8.5);
       doc.setTextColor(255, 255, 255);
-      doc.text(card.label.toUpperCase(), x + 12, top + 20);
+      doc.text(card.label.toUpperCase(), x + 16, top + 24);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(19);
-      doc.text(card.value, x + 12, top + 44);
+      doc.setFontSize(21);
+      doc.text(card.value, x + 16, top + 52);
       if (card.subtext) {
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
+        doc.setFontSize(8);
         doc.setTextColor(255, 255, 255);
-        doc.text(card.subtext, x + 12, top + 56);
+        doc.text(card.subtext, x + 16, top + 65);
       }
     });
-    return height;
   };
 
   // ---- Header band (gradient) ----
-  drawGradientRect(0, 0, pageWidth, 58, GRADIENTS.header);
+  const headerHeight = 72;
+  drawGradientRect(0, 0, pageWidth, headerHeight, GRADIENTS.header);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
+  doc.setFontSize(17);
   doc.setTextColor(255, 255, 255);
-  doc.text('QA Toolkit', margin, 32);
+  doc.text('QA Toolkit', margin, 34);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.5);
+  doc.setFontSize(10);
   doc.setTextColor(230, 224, 250);
-  doc.text('Stress Test Report', margin, 47);
-  y = 58 + 20;
+  doc.text('Stress Test Report', margin, 52);
+  const overallPassed = result.fail_count === 0;
+  const overallBadgeWidth = doc.getTextWidth(overallPassed ? 'ALL PASSED' : 'SOME FAILED') + 18;
+  drawBadge(
+    overallPassed ? 'ALL PASSED' : 'SOME FAILED',
+    pageWidth - margin - overallBadgeWidth,
+    headerHeight / 2 - 8,
+    overallPassed ? STATUS_COLORS.PASS : STATUS_COLORS.FAIL
+  );
+  y = headerHeight + SECTION_GAP;
 
-  // ---- Endpoint / config line ----
-  ensureSpace(56);
+  // ---- Endpoint / config card ----
+  const infoCardHeight = 70;
+  ensureSpace(infoCardHeight);
   doc.setFillColor(...BOX_BG);
   doc.setDrawColor(...BOX_BORDER);
-  doc.roundedRect(margin, y, maxWidth, 56, 6, 6, 'FD');
+  doc.roundedRect(margin, y, maxWidth, infoCardHeight, 9, 9, 'FD');
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
+  doc.setFontSize(14);
   doc.setTextColor(...INK);
-  doc.text(`${endpoint.method} ${endpoint.name}`, margin + 14, y + 22);
+  doc.text(`${endpoint.method} ${endpoint.name}`, margin + CARD_PADDING, y + 27);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
+  doc.setFontSize(9.5);
   doc.setTextColor(...MUTED);
-  doc.text(`Environment: ${environment.name}  •  Credential: ${credentialName || 'None'}`, margin + 14, y + 40);
-  doc.text(`${config.total_requests} requests  •  ${config.concurrency} concurrency`, pageWidth - margin - 14, y + 22, { align: 'right' });
-  doc.text(new Date().toLocaleString(), pageWidth - margin - 14, y + 40, { align: 'right' });
-  y += 56 + 20;
+  doc.text(`Environment: ${environment.name}  •  Credential: ${credentialName || 'None'}`, margin + CARD_PADDING, y + 49);
+  doc.text(`${config.total_requests} requests  •  ${config.concurrency} concurrency`, pageWidth - margin - CARD_PADDING, y + 27, { align: 'right' });
+  doc.text(new Date().toLocaleString(), pageWidth - margin - CARD_PADDING, y + 49, { align: 'right' });
+  y += infoCardHeight + SECTION_GAP;
 
   // ---- Metric cards ----
-  ensureSpace(64);
+  const metricCardHeight = 76;
+  ensureSpace(metricCardHeight);
   drawMetricCards([
     { tone: 'primary', label: 'Total Requests', value: String(result.total_requests) },
     { tone: 'success', label: 'Passed', value: String(result.pass_count) },
     { tone: result.fail_count > 0 ? 'danger' : 'success', label: 'Failed', value: String(result.fail_count) },
     { tone: 'warning', label: 'Throughput', value: `${result.requests_per_sec}`, subtext: 'req/sec' },
-  ], y);
-  y += 64 + 24;
+  ], y, metricCardHeight);
+  y += metricCardHeight + SECTION_GAP;
 
-  // ---- Latency breakdown chart ----
-  addText('Latency Breakdown', { size: 11, style: 'bold', color: INK });
-  y += 6;
-  drawBarChart([
+  // ---- Latency breakdown ----
+  drawChartCard('Latency Breakdown', [
     { label: 'Min', value: result.min_ms, valueLabel: `${result.min_ms}ms`, color: [109, 106, 246] },
     { label: 'Avg', value: result.avg_ms, valueLabel: `${result.avg_ms}ms`, color: [130, 128, 248] },
     { label: 'p95', value: result.p95_ms, valueLabel: `${result.p95_ms}ms`, color: [154, 152, 250] },
     { label: 'Max', value: result.max_ms, valueLabel: `${result.max_ms}ms`, color: [178, 176, 252] },
   ]);
 
-  // ---- Status codes chart ----
+  // ---- Status codes ----
   const codes = Object.entries(result.status_counts);
-  ensureSpace(50);
-  addText('Status Codes', { size: 11, style: 'bold', color: INK, gapBefore: 16 });
-  y += 6;
-  drawBarChart(
+  drawChartCard(
+    'Status Codes',
     codes.map(([code, count]) => ({
       label: code,
       value: count,
@@ -206,23 +237,28 @@ function buildStressTestPdf(context) {
 
   // ---- Error samples ----
   if (result.error_samples && result.error_samples.length > 0) {
-    addText('Sample Errors', { size: 9.5, style: 'bold', color: MUTED, gapBefore: 10 });
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(...INK);
+    ensureSpace(20);
+    doc.text('Sample Errors', margin, y);
+    y += 20;
     for (const msg of result.error_samples) {
-      ensureSpace(20);
-      const lines = doc.splitTextToSize(msg, maxWidth - 16);
-      const boxHeight = lines.length * 11 + 10;
+      const lines = doc.splitTextToSize(msg, maxWidth - CARD_PADDING * 2);
+      const boxHeight = lines.length * 12 + CARD_PADDING * 2 - 6;
+      ensureSpace(boxHeight + 12);
       doc.setFillColor(...BOX_BG);
       doc.setDrawColor(...BOX_BORDER);
-      doc.roundedRect(margin, y, maxWidth, boxHeight, 4, 4, 'FD');
+      doc.roundedRect(margin, y, maxWidth, boxHeight, 6, 6, 'FD');
       doc.setFont('courier', 'normal');
-      doc.setFontSize(8);
+      doc.setFontSize(8.5);
       doc.setTextColor(60, 62, 68);
-      let ty = y + 10;
+      let ty = y + CARD_PADDING - 2;
       for (const line of lines) {
-        doc.text(line, margin + 8, ty);
-        ty += 11;
+        doc.text(line, margin + CARD_PADDING, ty);
+        ty += 12;
       }
-      y += boxHeight + 8;
+      y += boxHeight + 12;
     }
   }
 
@@ -235,8 +271,8 @@ function buildStressTestPdf(context) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...MUTED);
-    doc.text('Generated by QA Toolkit', margin, pageHeight - footerZone + 12);
-    doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - footerZone + 12, { align: 'right' });
+    doc.text('Generated by QA Toolkit', margin, pageHeight - footerZone + 16);
+    doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - footerZone + 16, { align: 'right' });
   }
 
   return { doc, filename: `stress-test-${endpoint.id}-${Date.now()}.pdf` };
