@@ -730,3 +730,63 @@ details[open] > summary.step-summary .chevron { transform: rotate(90deg); }
 }
 .scroll-to-top-btn:hover { background: var(--surface-3); transform: translateY(-2px); }
 .scroll-to-top-btn svg { display: block; }
+
+/* ---------- Stress Test panel ---------- */
+
+.stress-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.stress-form-grid select,
+.stress-form-grid input {
+  width: 100%;
+}
+
+.stress-metric-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+  margin-top: 22px;
+}
+.stress-metric-card {
+  border-radius: 10px;
+  padding: 16px 18px;
+  color: white;
+}
+.stress-metric-card.tone-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+.stress-metric-card.tone-success { background: linear-gradient(135deg, #68d391 0%, #48bb78 100%); }
+.stress-metric-card.tone-danger { background: linear-gradient(135deg, #fc8181 0%, #f56565 100%); }
+.stress-metric-card.tone-warning { background: linear-gradient(135deg, #f6ad55 0%, #ed8936 100%); }
+.stress-metric-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.9;
+  margin-bottom: 8px;
+}
+.stress-metric-value { font-size: 28px; font-weight: 700; line-height: 1; }
+.stress-metric-unit { font-size: 12px; font-weight: 400; opacity: 0.85; margin-left: 4px; }
+
+.stress-chart-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  margin-top: 18px;
+}
+.stress-chart-card h5 { margin: 0 0 14px 0; font-size: 13px; font-weight: 600; color: var(--text); }
+.stress-bar-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 110px;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.stress-bar-row:last-child { margin-bottom: 0; }
+.stress-bar-label { font-size: 12.5px; color: var(--text-dim); }
+.stress-bar-track { height: 14px; border-radius: 7px; background: var(--surface-3); overflow: hidden; }
+.stress-bar-fill { height: 100%; border-radius: 7px; transition: width 0.3s ease; }
+.stress-bar-value { font-size: 12.5px; font-weight: 600; text-align: right; }
