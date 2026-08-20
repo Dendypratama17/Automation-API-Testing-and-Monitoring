@@ -2305,7 +2305,7 @@ export default function Flows() {
           )}
         </div>
       </div>
-      <ScrollToTopButton active={!!(runResult || batchRunResult)} />
+      <ScrollToTopButton active={!!(runResult || batchRunResult) || (running && liveTotalSteps >= 5)} />
     </div>
   );
 }
