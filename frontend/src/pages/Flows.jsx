@@ -1240,24 +1240,20 @@ export default function Flows() {
   }, [runningToken]);
 
   // Auto-scroll while a run is live: brings the "Running…" card into view
-  // the moment a run starts, then keeps following the latest completed
-  // step as more of them land — driven off the total count (not liveSegments
-  // itself, which is a new array reference on every 800ms poll tick even
-  // when nothing actually changed) so it only re-scrolls on real progress.
+  // the moment a run starts, then keeps following along by scrolling all
+  // the way to the bottom of the page every time another step actually
+  // finishes — driven off the total count (not liveSegments itself, which
+  // is a new array reference on every 800ms poll tick even when nothing
+  // actually changed) so it only re-scrolls on real progress.
   const runningCardRef = useRef(null);
-  const latestStepRef = useRef(null);
   const liveTotalSteps = liveSegments.reduce((sum, seg) => sum + seg.steps.length, 0);
-  let lastNonEmptySegIdx = -1;
-  for (let i = liveSegments.length - 1; i >= 0; i--) {
-    if (liveSegments[i].steps.length > 0) { lastNonEmptySegIdx = i; break; }
-  }
 
   useEffect(() => {
     if (running) runningCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [running]);
   useEffect(() => {
     if (running && liveTotalSteps > 0) {
-      latestStepRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
     }
   }, [liveTotalSteps]);
 
@@ -2225,9 +2221,7 @@ export default function Flows() {
                       )}
                       <div className="stack" style={{ gap: 20 }}>
                         {seg.steps.map((s, idx) => (
-                          <div key={s.step_order} ref={segIdx === lastNonEmptySegIdx && idx === seg.steps.length - 1 ? latestStepRef : undefined}>
-                            <StepResultRow step={s} isLast={idx === seg.steps.length - 1} />
-                          </div>
+                          <StepResultRow key={s.step_order} step={s} isLast={idx === seg.steps.length - 1} />
                         ))}
                       </div>
                     </div>
