@@ -1276,6 +1276,14 @@ export default function Flows() {
   }
   const fifthStepRef = useRef(null);
   const [scrolledPastFifthStep, setScrolledPastFifthStep] = useState(false);
+  // Deliberately depends only on `running`, not liveTotalSteps — re-running
+  // this on every new step tore the listeners down and immediately re-checked
+  // position synchronously, which could fire right as a new step's DOM node
+  // was still landing and the auto-scroll-to-bottom animation hadn't actually
+  // moved the page yet, reading a stale "not scrolled past" position and
+  // hiding the button right when it should have stayed shown. The native
+  // 'scroll' events fired by that same auto-scroll (and by manual scrolling)
+  // already keep this correctly up to date without forcing an extra check.
   useEffect(() => {
     if (!running) { setScrolledPastFifthStep(false); return; }
     const checkPosition = () => {
@@ -1289,7 +1297,7 @@ export default function Flows() {
       window.removeEventListener('scroll', checkPosition);
       window.removeEventListener('resize', checkPosition);
     };
-  }, [running, liveTotalSteps]);
+  }, [running]);
 
   const handleCancelRun = async () => {
     if (!runningToken || cancelling) return;
