@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   getFolders, createFolder, updateFolder, deleteFolder,
   getEndpoints, updateEndpoint, deleteEndpoint, duplicateEndpoint, reorderEndpoints,
+  getEnvironments, getAuthCredentials, runStressTest,
 } from '../api/client';
 import KeyValueEditor, { objectToRows, rowsToObject } from '../components/KeyValueEditor.jsx';
 import FormDataEditor, { objectToFormRows, formRowsToObject } from '../components/FormDataEditor.jsx';
@@ -19,11 +20,16 @@ import JsonPasteEditor from '../components/JsonPasteEditor.jsx';
 function resourcePath(template) {
   return template.replace(/^\{\{base_url\}\}/, '') || '/';
 }
-import { TrashIcon, EditIcon, GripIcon, FolderIcon, CopyIcon } from '../components/icons.jsx';
+import { TrashIcon, EditIcon, GripIcon, FolderIcon, CopyIcon, ZapIcon } from '../components/icons.jsx';
 import OptionsMenu from '../components/OptionsMenu.jsx';
 import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
+import { groupByEnv } from '../utils/envBadge.js';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
+import { useToast } from '../components/ToastProvider.jsx';
 import { loadSelectedFolder, saveSelectedFolder, hasStoredFolder } from '../utils/persistedFolder.js';
+
+const STRESS_MAX_TOTAL_REQUESTS = 500;
+const STRESS_MAX_CONCURRENCY = 50;
 
 function endpointToForm(ep) {
   return {
@@ -42,6 +48,7 @@ function endpointToForm(ep) {
 
 export default function Endpoints() {
   const confirm = useConfirm();
+  const showToast = useToast();
   const [tab, setTab] = useState('endpoints'); // 'endpoints' | 'environments' | 'authorization' | 'default-headers' | 'test-files' | 'notifications'
   const [folders, setFolders] = useState([]);
   const [selectedFolderId, setSelectedFolderId] = useState(() => loadSelectedFolder('qa-tool:config-selected-folder')); // 'all' | 'null' | number
@@ -51,6 +58,16 @@ export default function Endpoints() {
   const [error, setError] = useState('');
   const [draggedId, setDraggedId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
+
+  // Stress Test panel — a separate concern from the edit/view panels above,
+  // so it can stay open independently of them.
+  const [environments, setEnvironments] = useState([]);
+  const [authCredentials, setAuthCredentials] = useState([]);
+  const [stressTarget, setStressTarget] = useState(null); // the endpoint being tested
+  const [stressForm, setStressForm] = useState({ environment_id: '', auth_credential_id: '', total_requests: 20, concurrency: 5 });
+  const [stressRunning, setStressRunning] = useState(false);
+  const [stressResult, setStressResult] = useState(null);
+  const [stressError, setStressError] = useState('');
 
   const loadFolders = () => getFolders('endpoint').then(setFolders);
   // Guards against out-of-order responses — React.StrictMode double-invokes
@@ -71,7 +88,58 @@ export default function Endpoints() {
 
   useEffect(() => {
     loadFolders();
+    getEnvironments().then(setEnvironments);
+    getAuthCredentials().then(setAuthCredentials);
   }, []);
+
+  const openStressTest = (ep) => {
+    setViewing(null);
+    setEditing(null);
+    setStressTarget(ep);
+    setStressResult(null);
+    setStressError('');
+  };
+
+  const handleRunStressTest = async (confirmProd = false) => {
+    setStressError('');
+    const total = Number(stressForm.total_requests);
+    const conc = Number(stressForm.concurrency);
+    if (!stressForm.environment_id) { setStressError('Pick an environment first.'); return; }
+    if (!Number.isInteger(total) || total < 1 || total > STRESS_MAX_TOTAL_REQUESTS) {
+      setStressError(`Total requests must be a whole number between 1 and ${STRESS_MAX_TOTAL_REQUESTS}.`);
+      return;
+    }
+    if (!Number.isInteger(conc) || conc < 1 || conc > STRESS_MAX_CONCURRENCY) {
+      setStressError(`Concurrency must be a whole number between 1 and ${STRESS_MAX_CONCURRENCY}.`);
+      return;
+    }
+    if (conc > total) { setStressError('Concurrency cannot exceed total requests.'); return; }
+
+    setStressRunning(true);
+    setStressResult(null);
+    try {
+      const result = await runStressTest({
+        endpoint_id: stressTarget.id,
+        environment_id: Number(stressForm.environment_id),
+        auth_credential_id: stressForm.auth_credential_id ? Number(stressForm.auth_credential_id) : null,
+        total_requests: total,
+        concurrency: conc,
+        confirm_prod: confirmProd,
+      });
+      setStressResult(result);
+    } catch (err) {
+      if (err.response?.status === 412) {
+        if (await confirm(err.response.data.message + ' Continue?')) {
+          await handleRunStressTest(true);
+          return;
+        }
+      } else {
+        setStressError(err.response?.data?.error || err.message);
+      }
+    } finally {
+      setStressRunning(false);
+    }
+  };
 
   // Default to the oldest top-level folder (the very first one ever
   // created) instead of "All Endpoints" — only for a first-ever visit (no
@@ -300,6 +368,7 @@ export default function Endpoints() {
                           items={[
                             { label: 'Edit', icon: <EditIcon />, onClick: () => openEndpoint(ep) },
                             { label: 'Duplicate', icon: <CopyIcon />, onClick: () => handleDuplicate(ep.id) },
+                            { label: 'Stress Test', icon: <ZapIcon />, onClick: () => openStressTest(ep) },
                             {
                               label: 'Move to Folder',
                               icon: <FolderIcon />,
@@ -345,6 +414,112 @@ export default function Endpoints() {
                 <div style={{ marginTop: 16 }}>
                   <span className="field-label">Body ({viewing.body_type || 'json'})</span>
                   <JsonBlock value={viewing.body_template} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {stressTarget && (
+            <div className="card">
+              <div className="card-row">
+                <h4 style={{ margin: 0 }}>Stress Test: {stressTarget.method} {stressTarget.name}</h4>
+                <button className="btn-quiet" onClick={() => setStressTarget(null)}>✕ Close</button>
+              </div>
+              <p className="hint" style={{ marginTop: 4, fontSize: 12.5 }}>
+                Fires real requests at this endpoint — {STRESS_MAX_TOTAL_REQUESTS} requests / {STRESS_MAX_CONCURRENCY} concurrency max.
+              </p>
+
+              <div className="toolbar" style={{ marginTop: 12, flexWrap: 'wrap' }}>
+                <select
+                  value={stressForm.environment_id}
+                  onChange={(e) => setStressForm({ ...stressForm, environment_id: e.target.value })}
+                  disabled={stressRunning}
+                >
+                  <option value="">Select environment</option>
+                  {environments.map((env) => <option key={env.id} value={env.id}>{env.name}</option>)}
+                </select>
+                <select
+                  value={stressForm.auth_credential_id}
+                  onChange={(e) => setStressForm({ ...stressForm, auth_credential_id: e.target.value })}
+                  disabled={stressRunning}
+                  title="Optional — every request authenticates as this credential."
+                >
+                  <option value="">No Authorization</option>
+                  {groupByEnv(authCredentials, (c) => c.environment_name).map((group) => (
+                    <optgroup key={group.key} label={group.key}>
+                      {group.items.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name} ({c.type === 'web_login' ? 'Web Login' : 'Basic Auth'})</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  Total requests
+                  <input
+                    type="number"
+                    min={1}
+                    max={STRESS_MAX_TOTAL_REQUESTS}
+                    value={stressForm.total_requests}
+                    onChange={(e) => setStressForm({ ...stressForm, total_requests: e.target.value })}
+                    disabled={stressRunning}
+                    style={{ width: 80 }}
+                  />
+                </label>
+                <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  Concurrency
+                  <input
+                    type="number"
+                    min={1}
+                    max={STRESS_MAX_CONCURRENCY}
+                    value={stressForm.concurrency}
+                    onChange={(e) => setStressForm({ ...stressForm, concurrency: e.target.value })}
+                    disabled={stressRunning}
+                    style={{ width: 70 }}
+                  />
+                </label>
+                <button className="btn-primary" onClick={() => handleRunStressTest()} disabled={stressRunning}>
+                  {stressRunning ? 'Running...' : 'Run Stress Test'}
+                </button>
+              </div>
+
+              {stressError && <div className="error-text" style={{ marginTop: 12 }}>{stressError}</div>}
+
+              {stressResult && (
+                <div style={{ marginTop: 16 }}>
+                  <div className="toolbar" style={{ flexWrap: 'wrap', gap: 20 }}>
+                    <span>
+                      <span className={`badge ${stressResult.fail_count === 0 ? 'pass' : 'fail'}`}>
+                        {stressResult.pass_count}/{stressResult.total_requests} passed
+                      </span>
+                    </span>
+                    <span className="hint">Avg: <b style={{ color: 'var(--text)' }}>{stressResult.avg_ms}ms</b></span>
+                    <span className="hint">Min: <b style={{ color: 'var(--text)' }}>{stressResult.min_ms}ms</b></span>
+                    <span className="hint">Max: <b style={{ color: 'var(--text)' }}>{stressResult.max_ms}ms</b></span>
+                    <span className="hint">p95: <b style={{ color: 'var(--text)' }}>{stressResult.p95_ms}ms</b></span>
+                    <span className="hint">Throughput: <b style={{ color: 'var(--text)' }}>{stressResult.requests_per_sec} req/s</b></span>
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <span className="field-label">Status Codes</span>
+                    <div className="toolbar" style={{ gap: 8, marginTop: 4 }}>
+                      {Object.entries(stressResult.status_counts).map(([status, count]) => (
+                        <span key={status} className={`badge ${status === 'ERROR' || Number(status) >= 400 ? 'fail' : 'pass'}`}>
+                          {status}: {count}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {stressResult.error_samples.length > 0 && (
+                    <div style={{ marginTop: 12 }}>
+                      <span className="field-label">Sample Errors</span>
+                      <div className="stack" style={{ gap: 4, marginTop: 4 }}>
+                        {stressResult.error_samples.map((msg, i) => (
+                          <div key={i} className="error-text" style={{ fontSize: 12.5 }}>{msg}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

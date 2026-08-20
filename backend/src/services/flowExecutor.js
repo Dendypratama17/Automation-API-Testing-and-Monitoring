@@ -576,4 +576,7 @@ async function executeFlow(flow, steps, environment, previousSchemas = {}, authC
   return { status: overallStatus, steps: stepResults, variables };
 }
 
-module.exports = { executeFlow, resolveDeep, getField, checkAssertions };
+module.exports = {
+  executeFlow, resolveDeep, getField, checkAssertions,
+  activeHeaders, requestWithRetry, describeConnectionError, buildRequestBody,
+};

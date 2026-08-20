@@ -15,6 +15,7 @@ const testFilesRouter = require('./routes/testFiles');
 const settingsRouter = require('./routes/settings');
 const jsonDiffRouter = require('./routes/jsonDiff');
 const telegramRouter = require('./routes/telegram');
+const stressTestRouter = require('./routes/stressTest');
 const { initScheduler } = require('./services/scheduler');
 
 const app = express();
@@ -36,6 +37,7 @@ app.use('/api/test-files', testFilesRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/json-diff', jsonDiffRouter);
 app.use('/api/telegram', telegramRouter);
+app.use('/api/stress-test', stressTestRouter);
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 

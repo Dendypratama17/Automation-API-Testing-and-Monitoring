@@ -46,6 +46,14 @@ export function PlayIcon(props) {
   );
 }
 
+export function ZapIcon(props) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" {...props}>
+      <path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" />
+    </svg>
+  );
+}
+
 export function StopIcon(props) {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" {...props}>
