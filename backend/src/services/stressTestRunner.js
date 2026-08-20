@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { decrypt } = require('../utils/crypto');
 const { getWebLoginToken } = require('./webLogin');
-const { resolveDeep, activeHeaders, requestWithRetry, describeConnectionError, buildRequestBody } = require('./flowExecutor');
+const { resolveDeep, activeHeaders, requestWithRetry, describeConnectionError, buildRequestBody, formatTimestampWIB } = require('./flowExecutor');
 const { isCancelled } = require('./runCancellation');
 
 // Hard ceiling on both knobs, enforced server-side (not just whatever the
@@ -31,7 +31,7 @@ async function sendOneRequest(endpoint, environment, authHeaderValue) {
     ...(environment.variables || {}),
     request_id: crypto.randomUUID(),
     random: crypto.randomBytes(4).toString('hex'),
-    timestamp: String(Math.floor(Date.now() / 1000)),
+    timestamp: formatTimestampWIB(),
   };
   const url = resolveDeep(endpoint.path_template, variables);
   const headers = resolveDeep(activeHeaders(endpoint.headers), variables);

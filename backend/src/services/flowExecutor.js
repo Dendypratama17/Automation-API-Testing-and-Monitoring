@@ -9,6 +9,17 @@ const { pushProgress } = require('./runProgress');
 // overall status down to something that reads as a problem.
 const SEVERITY = { SKIPPED: -1, PASS: 0, SCHEMA_DRIFT: 1, FAIL: 2, ERROR: 3 };
 
+// {{timestamp}} — real wall-clock time as of the exact moment it's resolved
+// (see runStep/sendOneRequest), formatted as WIB (Indonesia, UTC+7, no DST)
+// e.g. "2026-08-20T14:24:00+07:00" — hardcoded rather than derived from the
+// server's own timezone, since that could vary by deployment while the APIs
+// this hits are always Indonesia-local.
+function formatTimestampWIB(date = new Date()) {
+  const wib = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${wib.getUTCFullYear()}-${pad(wib.getUTCMonth() + 1)}-${pad(wib.getUTCDate())}T${pad(wib.getUTCHours())}:${pad(wib.getUTCMinutes())}:${pad(wib.getUTCSeconds())}+07:00`;
+}
+
 // A header row unchecked in the editor is saved as { __disabled__: true, value }
 // instead of being dropped (see KeyValueEditor.jsx) so it can still be shown
 // and re-enabled later. Strip those out (and unwrap the rest) before a header
@@ -378,14 +389,14 @@ async function runStep(step, baseVariables, flow, authCredentials, previousSchem
   // {{random}} is a short random string for body/URL fields that need a
   // unique value on every run (e.g. a document title) without wiring up an
   // Extract Variable rule just for that. {{timestamp}} is the real
-  // wall-clock time this exact request is about to fire (Unix seconds),
-  // not the flow's start time — e.g. a signature/nonce field some APIs
-  // require to be genuinely current.
+  // wall-clock time this exact request is about to fire (WIB, ISO-ish with
+  // offset — see formatTimestampWIB), not the flow's start time — e.g. a
+  // signature/nonce field some APIs require to be genuinely current.
   const variables = {
     ...baseVariables,
     request_id: crypto.randomUUID(),
     random: crypto.randomBytes(4).toString('hex'),
-    timestamp: String(Math.floor(Date.now() / 1000)),
+    timestamp: formatTimestampWIB(),
   };
 
   const url = resolveDeep(step.url_template, variables);
@@ -629,5 +640,5 @@ async function executeFlow(flow, steps, environment, previousSchemas = {}, authC
 
 module.exports = {
   executeFlow, resolveDeep, getField, checkAssertions,
-  activeHeaders, requestWithRetry, describeConnectionError, buildRequestBody,
+  activeHeaders, requestWithRetry, describeConnectionError, buildRequestBody, formatTimestampWIB,
 };
