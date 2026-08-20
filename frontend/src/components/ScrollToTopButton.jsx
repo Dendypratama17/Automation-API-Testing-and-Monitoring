@@ -11,12 +11,17 @@ const NEAR_BOTTOM_PX = 24;
  * on screen) AND the page is scrolled all the way to the bottom. The whole
  * app scrolls the window/body itself (no inner per-page container), so this
  * tracks window scroll directly rather than some ref'd element.
+ *
+ * `skipBottomCheck`: the caller has already decided exactly when this
+ * should show (e.g. Flows tracks scroll position against a specific step's
+ * element, not "the very bottom of the page") — show it whenever `active`
+ * is true, without also requiring this component's own bottom-of-page check.
  */
-export default function ScrollToTopButton({ active }) {
+export default function ScrollToTopButton({ active, skipBottomCheck = false }) {
   const [atBottom, setAtBottom] = useState(false);
 
   useEffect(() => {
-    if (!active) { setAtBottom(false); return; }
+    if (!active || skipBottomCheck) { setAtBottom(false); return; }
     const checkPosition = () => {
       const scrollHeight = document.documentElement.scrollHeight;
       const isScrollable = scrollHeight > window.innerHeight + NEAR_BOTTOM_PX;
@@ -30,9 +35,9 @@ export default function ScrollToTopButton({ active }) {
       window.removeEventListener('scroll', checkPosition);
       window.removeEventListener('resize', checkPosition);
     };
-  }, [active]);
+  }, [active, skipBottomCheck]);
 
-  if (!active || !atBottom) return null;
+  if (!active || (!skipBottomCheck && !atBottom)) return null;
 
   return (
     <button

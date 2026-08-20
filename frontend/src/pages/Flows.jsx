@@ -1257,6 +1257,40 @@ export default function Flows() {
     }
   }, [liveTotalSteps]);
 
+  // Which segment/index (across all of liveSegments, flattened) is the 5th
+  // completed step overall — a ref goes on that one specific row so the
+  // scroll-to-top button's visibility can track it directly ("have I
+  // scrolled past step 5") instead of "am I at the very bottom of the
+  // page", which doesn't fit here since the page keeps auto-scrolling to
+  // the bottom on every new step anyway.
+  let fifthStepSegIdx = -1;
+  let fifthStepIdx = -1;
+  {
+    let flatCount = 0;
+    outer: for (let i = 0; i < liveSegments.length; i++) {
+      for (let j = 0; j < liveSegments[i].steps.length; j++) {
+        if (flatCount === 4) { fifthStepSegIdx = i; fifthStepIdx = j; break outer; }
+        flatCount += 1;
+      }
+    }
+  }
+  const fifthStepRef = useRef(null);
+  const [scrolledPastFifthStep, setScrolledPastFifthStep] = useState(false);
+  useEffect(() => {
+    if (!running) { setScrolledPastFifthStep(false); return; }
+    const checkPosition = () => {
+      const el = fifthStepRef.current;
+      setScrolledPastFifthStep(!!el && el.getBoundingClientRect().top < 0);
+    };
+    checkPosition();
+    window.addEventListener('scroll', checkPosition, { passive: true });
+    window.addEventListener('resize', checkPosition);
+    return () => {
+      window.removeEventListener('scroll', checkPosition);
+      window.removeEventListener('resize', checkPosition);
+    };
+  }, [running, liveTotalSteps]);
+
   const handleCancelRun = async () => {
     if (!runningToken || cancelling) return;
     setCancelling(true);
@@ -2221,7 +2255,9 @@ export default function Flows() {
                       )}
                       <div className="stack" style={{ gap: 20 }}>
                         {seg.steps.map((s, idx) => (
-                          <StepResultRow key={s.step_order} step={s} isLast={idx === seg.steps.length - 1} />
+                          <div key={s.step_order} ref={segIdx === fifthStepSegIdx && idx === fifthStepIdx ? fifthStepRef : undefined}>
+                            <StepResultRow step={s} isLast={idx === seg.steps.length - 1} />
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -2305,7 +2341,8 @@ export default function Flows() {
           )}
         </div>
       </div>
-      <ScrollToTopButton active={!!(runResult || batchRunResult) || (running && liveTotalSteps >= 5)} />
+      <ScrollToTopButton active={!!(runResult || batchRunResult)} />
+      <ScrollToTopButton active={running && liveTotalSteps >= 5 && scrolledPastFifthStep} skipBottomCheck />
     </div>
   );
 }
