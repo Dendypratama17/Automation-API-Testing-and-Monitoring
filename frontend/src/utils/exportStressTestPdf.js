@@ -1,9 +1,17 @@
 import { jsPDF } from 'jspdf';
 
-const STATUS_COLORS = {
-  PASS: [22, 163, 74],
-  FAIL: [220, 38, 38],
+// Colors lifted straight from the k6-reporter dashboard style (purple
+// gradient header, colored metric cards) — this is a static PDF page, not an
+// interactive HTML report, so gradients are simulated with thin vertical
+// stripes rather than a CSS linear-gradient.
+const GRADIENTS = {
+  header: [[124, 58, 237], [91, 33, 182]], // #7c3aed -> #5b21b6
+  primary: [[102, 126, 234], [118, 75, 162]], // #667eea -> #764ba2
+  success: [[104, 211, 145], [72, 187, 120]], // #68d391 -> #48bb78
+  danger: [[252, 129, 129], [245, 101, 101]], // #fc8181 -> #f56565
+  warning: [[246, 173, 85], [237, 137, 54]], // #f6ad55 -> #ed8936
 };
+const STATUS_COLORS = { PASS: [22, 163, 74], FAIL: [220, 38, 38] };
 const INK = [40, 42, 48];
 const MUTED = [120, 124, 134];
 const BOX_BG = [244, 245, 248];
@@ -41,6 +49,32 @@ function buildStressTestPdf(context) {
       y += lineGap;
     }
   };
+
+  // Simulates a CSS-style linear-gradient fill with N thin vertical stripes,
+  // interpolating between the two colors left to right — jsPDF has no native
+  // gradient fill, so this is the standard workaround.
+  const drawGradientRect = (x, top, w, h, [from, to], radius = 0) => {
+    const steps = Math.max(12, Math.round(w / 4));
+    const stripeW = w / steps;
+    if (radius > 0) {
+      // Clip to a rounded-rect shape first so the stripes don't spill past
+      // rounded corners, then paint stripes inside it.
+      doc.saveGraphicsState();
+      doc.roundedRect(x, top, w, h, radius, radius, null);
+      doc.clip();
+      doc.discardPath();
+    }
+    for (let i = 0; i < steps; i++) {
+      const t = i / (steps - 1 || 1);
+      const r = Math.round(from[0] + (to[0] - from[0]) * t);
+      const g = Math.round(from[1] + (to[1] - from[1]) * t);
+      const b = Math.round(from[2] + (to[2] - from[2]) * t);
+      doc.setFillColor(r, g, b);
+      doc.rect(x + i * stripeW, top, stripeW + 0.75, h, 'F');
+    }
+    if (radius > 0) doc.restoreGraphicsState();
+  };
+
   const drawBadge = (text, x, top, color) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
@@ -57,12 +91,10 @@ function buildStressTestPdf(context) {
   // color }]. Bar length is proportional to `value` against the largest one
   // in the set (or `maxValue` if given, e.g. total_requests so a status
   // code's bar reads as its share of the whole run, not just relative to
-  // the other codes). Returns the total height used so the caller can
-  // advance `y` past it.
+  // the other codes).
   const drawBarChart = (rows, { barHeight = 14, gap = 8, labelWidth = 90, valueWidth = 90, maxValue } = {}) => {
     const chartWidth = maxWidth - labelWidth - valueWidth;
     const max = maxValue ?? Math.max(...rows.map((r) => r.value), 1);
-    const startY = y;
     rows.forEach((row) => {
       ensureSpace(barHeight + gap);
       doc.setFont('helvetica', 'normal');
@@ -81,85 +113,74 @@ function buildStressTestPdf(context) {
       doc.text(row.valueLabel, margin + labelWidth + chartWidth + 8, y + barHeight - 4);
       y += barHeight + gap;
     });
-    return y - startY;
   };
 
-  // ---- Header band ----
-  doc.setFillColor(10, 12, 17);
-  doc.rect(0, 0, pageWidth, 54, 'F');
+  // One k6-reporter-style "metric card" — a gradient-filled rounded box with
+  // a big bold number and an uppercase label, in a row of `count` cards.
+  const drawMetricCards = (cards, top, height = 64) => {
+    const gap = 12;
+    const cardWidth = (maxWidth - gap * (cards.length - 1)) / cards.length;
+    cards.forEach((card, i) => {
+      const x = margin + i * (cardWidth + gap);
+      drawGradientRect(x, top, cardWidth, height, GRADIENTS[card.tone], 8);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(255, 255, 255);
+      doc.text(card.label.toUpperCase(), x + 12, top + 20);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(19);
+      doc.text(card.value, x + 12, top + 44);
+      if (card.subtext) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(255, 255, 255);
+        doc.text(card.subtext, x + 12, top + 56);
+      }
+    });
+    return height;
+  };
+
+  // ---- Header band (gradient) ----
+  drawGradientRect(0, 0, pageWidth, 58, GRADIENTS.header);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15);
+  doc.setFontSize(16);
   doc.setTextColor(255, 255, 255);
-  doc.text('QA Toolkit', margin, 30);
+  doc.text('QA Toolkit', margin, 32);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
-  doc.setTextColor(180, 184, 196);
-  doc.text('Stress Test Report', margin, 44);
-  y = 54 + 24;
+  doc.setTextColor(230, 224, 250);
+  doc.text('Stress Test Report', margin, 47);
+  y = 58 + 20;
 
-  // ---- Summary card ----
-  const overallPassed = result.fail_count === 0;
-  const summaryHeight = 92;
-  ensureSpace(summaryHeight);
+  // ---- Endpoint / config line ----
+  ensureSpace(56);
   doc.setFillColor(...BOX_BG);
   doc.setDrawColor(...BOX_BORDER);
-  doc.roundedRect(margin, y, maxWidth, summaryHeight, 6, 6, 'FD');
+  doc.roundedRect(margin, y, maxWidth, 56, 6, 6, 'FD');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.setTextColor(...INK);
-  doc.text(`${endpoint.method} ${endpoint.name}`, margin + 14, y + 24);
-  drawBadge(overallPassed ? 'ALL PASSED' : 'SOME FAILED', margin + 14, y + 34, overallPassed ? STATUS_COLORS.PASS : STATUS_COLORS.FAIL);
+  doc.text(`${endpoint.method} ${endpoint.name}`, margin + 14, y + 22);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(...MUTED);
-  doc.text(`Environment: ${environment.name}`, margin + 14, y + 62);
-  doc.text(`Credential: ${credentialName || 'None'}`, margin + 14, y + 76);
-  doc.text(`${config.total_requests} requests  •  ${config.concurrency} concurrency`, pageWidth - margin - 14, y + 62, { align: 'right' });
-  doc.text(new Date().toLocaleString(), pageWidth - margin - 14, y + 76, { align: 'right' });
-  y += summaryHeight + 22;
+  doc.text(`Environment: ${environment.name}  •  Credential: ${credentialName || 'None'}`, margin + 14, y + 40);
+  doc.text(`${config.total_requests} requests  •  ${config.concurrency} concurrency`, pageWidth - margin - 14, y + 22, { align: 'right' });
+  doc.text(new Date().toLocaleString(), pageWidth - margin - 14, y + 40, { align: 'right' });
+  y += 56 + 20;
 
-  // ---- Result metrics ----
-  addText('Results', { size: 11, style: 'bold', color: INK });
-  y += 4;
-  const metrics = [
-    [`${result.pass_count} / ${result.total_requests}`, 'Passed'],
-    [`${result.avg_ms}ms`, 'Avg Latency'],
-    [`${result.min_ms}ms`, 'Min'],
-    [`${result.max_ms}ms`, 'Max'],
-    [`${result.p95_ms}ms`, 'p95'],
-    [`${result.requests_per_sec}`, 'Req/sec'],
-  ];
-  const colWidth = maxWidth / metrics.length;
-  ensureSpace(50);
-  const metricsTop = y;
-  metrics.forEach(([value, label], i) => {
-    const x = margin + i * colWidth;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(15);
-    doc.setTextColor(...INK);
-    doc.text(value, x, metricsTop + 20);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(...MUTED);
-    doc.text(label, x, metricsTop + 34);
-  });
-  y = metricsTop + 50;
-
-  // ---- Pass / Fail chart ----
-  ensureSpace(50);
-  addText('Pass / Fail', { size: 11, style: 'bold', color: INK, gapBefore: 12 });
-  y += 6;
-  drawBarChart(
-    [
-      { label: 'Passed', value: result.pass_count, valueLabel: `${result.pass_count}`, color: STATUS_COLORS.PASS },
-      { label: 'Failed', value: result.fail_count, valueLabel: `${result.fail_count}`, color: STATUS_COLORS.FAIL },
-    ],
-    { maxValue: result.total_requests }
-  );
+  // ---- Metric cards ----
+  ensureSpace(64);
+  drawMetricCards([
+    { tone: 'primary', label: 'Total Requests', value: String(result.total_requests) },
+    { tone: 'success', label: 'Passed', value: String(result.pass_count) },
+    { tone: result.fail_count > 0 ? 'danger' : 'success', label: 'Failed', value: String(result.fail_count) },
+    { tone: 'warning', label: 'Throughput', value: `${result.requests_per_sec}`, subtext: 'req/sec' },
+  ], y);
+  y += 64 + 24;
 
   // ---- Latency breakdown chart ----
-  ensureSpace(50);
-  addText('Latency Breakdown', { size: 11, style: 'bold', color: INK, gapBefore: 16 });
+  addText('Latency Breakdown', { size: 11, style: 'bold', color: INK });
   y += 6;
   drawBarChart([
     { label: 'Min', value: result.min_ms, valueLabel: `${result.min_ms}ms`, color: [109, 106, 246] },
