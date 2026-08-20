@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   getFolders, createFolder, updateFolder, deleteFolder,
   getEndpoints, updateEndpoint, deleteEndpoint, duplicateEndpoint, reorderEndpoints,
-  getEnvironments, getAuthCredentials, runStressTest, sendDocumentToTelegram,
+  getEnvironments, getAuthCredentials, runStressTest, cancelStressTest, sendDocumentToTelegram,
 } from '../api/client';
 import { exportStressTestToPdf, getStressTestPdfBase64 } from '../utils/exportStressTestPdf.js';
 import KeyValueEditor, { objectToRows, rowsToObject } from '../components/KeyValueEditor.jsx';
@@ -75,6 +75,8 @@ export default function Endpoints() {
   // result is still showing.
   const [stressRanWith, setStressRanWith] = useState(null);
   const [sharingStressTest, setSharingStressTest] = useState(false);
+  const [stressRunToken, setStressRunToken] = useState(null);
+  const [stressCancelling, setStressCancelling] = useState(false);
 
   const loadFolders = () => getFolders('endpoint').then(setFolders);
   // Guards against out-of-order responses — React.StrictMode double-invokes
@@ -143,7 +145,13 @@ export default function Endpoints() {
     if (conc > total) { setStressError('Concurrency cannot exceed total requests.'); return; }
 
     setStressRunning(true);
+    setStressCancelling(false);
     setStressResult(null);
+    // Fresh per actual attempt — the confirm-prod retry below counts as a
+    // new attempt, since the first one never got past the confirmation gate
+    // to send anything cancellable in the first place.
+    const runToken = crypto.randomUUID();
+    setStressRunToken(runToken);
     try {
       const result = await runStressTest({
         endpoint_id: stressTarget.id,
@@ -152,6 +160,7 @@ export default function Endpoints() {
         total_requests: total,
         concurrency: conc,
         confirm_prod: confirmProd,
+        run_token: runToken,
       });
       setStressResult(result);
       setStressRanWith({
@@ -174,6 +183,19 @@ export default function Endpoints() {
       }
     } finally {
       setStressRunning(false);
+      setStressRunToken(null);
+      setStressCancelling(false);
+    }
+  };
+
+  const handleCancelStressTest = async () => {
+    if (!stressRunToken || stressCancelling) return;
+    setStressCancelling(true);
+    try {
+      await cancelStressTest(stressRunToken);
+    } catch (err) {
+      setStressError(err.response?.data?.error || err.message);
+      setStressCancelling(false);
     }
   };
 
@@ -527,19 +549,39 @@ export default function Endpoints() {
                 </label>
               </div>
 
-              <button
-                className="btn-primary"
-                onClick={() => handleRunStressTest()}
-                disabled={stressRunning}
-                style={{ marginTop: 14 }}
-              >
-                {stressRunning ? 'Running...' : 'Run Stress Test'}
-              </button>
+              <div className="toolbar" style={{ marginTop: 14 }}>
+                <button
+                  className="btn-primary"
+                  onClick={() => handleRunStressTest()}
+                  disabled={stressRunning}
+                >
+                  Run Stress Test
+                </button>
+                {stressRunning && (
+                  <>
+                    <span className="spinner" />
+                    <span className="hint">{stressCancelling ? 'Cancelling…' : 'Running…'}</span>
+                    <button
+                      className="btn-quiet"
+                      onClick={handleCancelStressTest}
+                      disabled={stressCancelling}
+                      title="Stops the test at the next request boundary — requests already sent are kept."
+                    >
+                      Cancel
+                    </button>
+                  </>
+                )}
+              </div>
 
               {stressError && <div className="error-text" style={{ marginTop: 12 }}>{stressError}</div>}
 
               {stressResult && (
                 <div style={{ marginTop: 16 }}>
+                  {stressResult.cancelled && (
+                    <div className="hint" style={{ marginBottom: 10 }}>
+                      Cancelled early — only {stressResult.total_requests} request{stressResult.total_requests === 1 ? '' : 's'} completed before stopping.
+                    </div>
+                  )}
                   <div className="toolbar" style={{ flexWrap: 'wrap', gap: 20 }}>
                     <span>
                       <span className={`badge ${stressResult.fail_count === 0 ? 'pass' : 'fail'}`}>

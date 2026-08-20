@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { decrypt } = require('../utils/crypto');
 const { getWebLoginToken } = require('./webLogin');
 const { resolveDeep, activeHeaders, requestWithRetry, describeConnectionError, buildRequestBody } = require('./flowExecutor');
+const { isCancelled } = require('./runCancellation');
 
 // Hard ceiling on both knobs, enforced server-side (not just whatever the
 // form happens to send) — this fires real requests at a real API, some of
@@ -101,7 +102,13 @@ function summarize(results, wallClockMs) {
 // artificial delay), same constant-load model as ab/wrk/k6's simplest mode.
 // The counter check-then-increment never yields between the two, so it's
 // safe across concurrent workers despite there being no actual lock.
-async function runStressTest({ endpoint, environment, credential, totalRequests, concurrency }) {
+//
+// `runToken` is checked before EVERY request (not just between batches like
+// a Flow run) — each request here is its own natural boundary, so this is
+// the tightest granularity cancellation can reasonably have. isCancelled(null)
+// is always false, so omitting runToken just makes this uncancellable, same
+// as before this existed.
+async function runStressTest({ endpoint, environment, credential, totalRequests, concurrency, runToken = null }) {
   // Resolved (and, for Web Login, possibly a real ~15-20s sign-in) BEFORE
   // the clock below starts — that's setup, not part of the endpoint's own
   // throughput.
@@ -111,6 +118,7 @@ async function runStressTest({ endpoint, environment, credential, totalRequests,
 
   const worker = async () => {
     while (started < totalRequests) {
+      if (isCancelled(runToken)) break;
       started += 1;
       results.push(await sendOneRequest(endpoint, environment, authHeaderValue));
     }
@@ -119,7 +127,9 @@ async function runStressTest({ endpoint, environment, credential, totalRequests,
   await Promise.all(Array.from({ length: Math.min(concurrency, totalRequests) }, worker));
   const wallClockMs = Date.now() - wallClockStart;
 
-  return summarize(results, wallClockMs);
+  const summary = summarize(results, wallClockMs);
+  summary.cancelled = results.length < totalRequests;
+  return summary;
 }
 
 module.exports = { runStressTest, MAX_TOTAL_REQUESTS, MAX_CONCURRENCY };

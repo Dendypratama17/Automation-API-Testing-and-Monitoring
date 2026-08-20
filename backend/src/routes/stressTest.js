@@ -3,6 +3,14 @@ const router = express.Router();
 const pool = require('../db/pool');
 const catchAsync = require('../utils/catchAsync');
 const { runStressTest, MAX_TOTAL_REQUESTS, MAX_CONCURRENCY } = require('../services/stressTestRunner');
+const { markCancelled, clearToken } = require('../services/runCancellation');
+
+// Marks a stress test's run_token cancelled — checked before every request
+// in the worker pool below, so this stops it at the next request boundary.
+router.post('/:runToken/cancel', catchAsync(async (req, res) => {
+  markCancelled(req.params.runToken);
+  res.json({ ok: true });
+}));
 
 // Fires `total_requests` real requests at one Endpoint (with `concurrency`
 // in flight at a time) and returns just an aggregate summary — no per-request
@@ -11,7 +19,7 @@ const { runStressTest, MAX_TOTAL_REQUESTS, MAX_CONCURRENCY } = require('../servi
 router.post('/', catchAsync(async (req, res) => {
   const {
     endpoint_id, environment_id, auth_credential_id = null,
-    total_requests, concurrency, confirm_prod = false,
+    total_requests, concurrency, confirm_prod = false, run_token = null,
   } = req.body;
 
   const total = Number(total_requests);
@@ -51,7 +59,12 @@ router.post('/', catchAsync(async (req, res) => {
     if (!credential) return res.status(404).json({ error: 'Credential not found' });
   }
 
-  const summary = await runStressTest({ endpoint, environment, credential, totalRequests: total, concurrency: conc });
+  let summary;
+  try {
+    summary = await runStressTest({ endpoint, environment, credential, totalRequests: total, concurrency: conc, runToken: run_token });
+  } finally {
+    clearToken(run_token);
+  }
   res.json(summary);
 }));
 

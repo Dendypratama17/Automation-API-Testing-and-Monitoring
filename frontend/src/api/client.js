@@ -93,5 +93,6 @@ export const getSettings = () => api.get('/settings').then((r) => r.data);
 export const updateSetting = (key, value) => api.put(`/settings/${key}`, { value }).then((r) => r.data);
 
 export const runStressTest = (data) => api.post('/stress-test', data).then((r) => r.data);
+export const cancelStressTest = (runToken) => api.post(`/stress-test/${runToken}/cancel`).then((r) => r.data);
 
 export default api;
