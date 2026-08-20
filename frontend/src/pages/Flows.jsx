@@ -513,11 +513,14 @@ export default function Flows() {
   // fill mode (empty steps only, or override every step) before it's
   // actually applied — see handleApplyAuthCredential below.
   const [pendingAuthCredential, setPendingAuthCredential] = useState(null);
+  // Same idea as pendingAuthCredential, for a value picked from "Set X-Token"
+  // — see handleApplyXToken below.
+  const [pendingXToken, setPendingXToken] = useState(null);
   const [editingFlow, setEditingFlow] = useState(null);
   // Cleared whenever the panel closes or switches to a different flow —
   // there are many close/switch call sites, so this catches all of them
   // uniformly instead of resetting it at each one individually.
-  useEffect(() => { setPendingAuthCredential(null); }, [editingFlow?.id]);
+  useEffect(() => { setPendingAuthCredential(null); setPendingXToken(null); }, [editingFlow?.id]);
   const [viewingFlow, setViewingFlow] = useState(null);
   const [expandedStep, setExpandedStep] = useState(0);
   const [stepErrors, setStepErrors] = useState({});
@@ -989,6 +992,53 @@ export default function Flows() {
       showToast(`Filled Authorization for ${emptyCount} step${emptyCount === 1 ? '' : 's'} with "${cred.name}".${protectedNote}`);
     }
     setPendingAuthCredential(null);
+  };
+
+  const hasActiveXToken = (step) => step.headersRows.some((r) => (
+    r.key.trim().toLowerCase() === 'x-token' && r.enabled !== false && r.value.trim()
+  ));
+  const setXTokenOnStep = (step, value) => {
+    const idx = step.headersRows.findIndex((r) => r.key.trim().toLowerCase() === 'x-token');
+    if (idx === -1) return { ...step, headersRows: [...step.headersRows, { key: 'X-Token', value, enabled: true }] };
+    const headersRows = [...step.headersRows];
+    headersRows[idx] = { ...headersRows[idx], value, enabled: true };
+    return { ...step, headersRows };
+  };
+
+  // Same fill-empty/override-all choice as handleApplyAuthCredential, for a
+  // value picked from "Set X-Token" — previously this always overwrote every
+  // step in one shot behind a single confirm, with no way to only fill in
+  // the steps that didn't have one yet.
+  const handleApplyXToken = async (h, overrideExisting) => {
+    const label = `${h.label || 'X-Token'}${h.environment_name ? ` (${h.environment_name})` : ''}`;
+    const emptyCount = editingFlow.steps.filter((s) => !hasActiveXToken(s)).length;
+    const filledCount = editingFlow.steps.length - emptyCount;
+    if (overrideExisting) {
+      if (filledCount === 0) {
+        showToast('No step has its own X-Token set yet — nothing to override.');
+        setPendingXToken(null);
+        return;
+      }
+      const ok = await confirm(
+        `Override X-Token on ${filledCount} step${filledCount === 1 ? '' : 's'} that already ${filledCount === 1 ? 'has' : 'have'} one set, replacing it with "${label}"? This can't be undone.`
+      );
+      if (!ok) return;
+      const steps = editingFlow.steps.map((step) => setXTokenOnStep(step, h.value));
+      setEditingFlow({ ...editingFlow, steps });
+      showToast(`Set X-Token to "${label}" for all ${steps.length} step${steps.length === 1 ? '' : 's'}.`);
+    } else {
+      if (emptyCount === 0) {
+        showToast('Every step already has its own X-Token set — nothing to fill.');
+        setPendingXToken(null);
+        return;
+      }
+      const steps = editingFlow.steps.map((step) => (
+        !hasActiveXToken(step) ? setXTokenOnStep(step, h.value) : step
+      ));
+      setEditingFlow({ ...editingFlow, steps });
+      showToast(`Filled X-Token for ${emptyCount} step${emptyCount === 1 ? '' : 's'} with "${label}".`);
+    }
+    setPendingXToken(null);
   };
 
   // Unchecks (disables) every step's X-Token row instead of deleting it — the
@@ -1725,6 +1775,7 @@ export default function Flows() {
                 />
                 <BulkSelectDropdown
                   placeholder="Set X-Token"
+                  title="Pick a value, then choose whether to only fill empty steps or override every step's X-Token."
                   options={xTokenOptions}
                   groupBy={(h) => h.environment_name || 'No Environment'}
                   extraTopAction={{ label: 'Uncheck X-Token (all steps)', onClick: handleDisableXTokenForAll }}
@@ -1734,31 +1785,7 @@ export default function Flows() {
                       <span className="badge neutral mono header-value-item-value" title={h.value}>{h.value}</span>
                     </>
                   )}
-                  onPick={async (h) => {
-                    const label = `${h.label || 'X-Token'}${h.environment_name ? ` (${h.environment_name})` : ''}`;
-                    const count = editingFlow.steps.length;
-                    // Unlike "Select account" above (which only fills steps
-                    // with no Authorization yet), this always wins: it adds
-                    // an X-Token header to steps that don't have one, and
-                    // overwrites the value on steps that already do — worth
-                    // an explicit confirm since it can silently clobber a
-                    // step's own X-Token otherwise.
-                    const ok = await confirm(
-                      `Set X-Token to "${label}" for all ${count} step${count === 1 ? '' : 's'}? This replaces any X-Token a step already has set.`
-                    );
-                    if (!ok) return;
-                    const steps = editingFlow.steps.map((step) => {
-                      const idx = step.headersRows.findIndex((r) => r.key.trim().toLowerCase() === 'x-token');
-                      if (idx === -1) {
-                        return { ...step, headersRows: [...step.headersRows, { key: 'X-Token', value: h.value, enabled: true }] };
-                      }
-                      const headersRows = [...step.headersRows];
-                      headersRows[idx] = { ...headersRows[idx], value: h.value, enabled: true };
-                      return { ...step, headersRows };
-                    });
-                    setEditingFlow({ ...editingFlow, steps });
-                    showToast(`Set X-Token to "${label}" for all ${steps.length} step${steps.length === 1 ? '' : 's'}.`);
-                  }}
+                  onPick={(h) => setPendingXToken(h)}
                 />
                 <label style={{ flexShrink: 0, whiteSpace: 'nowrap', marginLeft: 'auto' }}>
                   <input
@@ -1779,6 +1806,23 @@ export default function Flows() {
                     Override all steps ({editingFlow.steps.filter((s) => !stepUsesNonBearerAuth(s)).length})
                   </button>
                   <button className="btn-icon" onClick={() => setPendingAuthCredential(null)} title="Cancel" style={{ marginLeft: 'auto' }}>
+                    <XIcon />
+                  </button>
+                </div>
+              )}
+
+              {pendingXToken && (
+                <div className="toolbar" style={{ gap: 8, background: 'var(--surface-2)', padding: '8px 10px', borderRadius: 8, marginBottom: 4 }}>
+                  <span className="hint" style={{ fontSize: 12.5 }}>
+                    Apply "{pendingXToken.label || 'X-Token'}{pendingXToken.environment_name ? ` (${pendingXToken.environment_name})` : ''}" to:
+                  </span>
+                  <button className="btn-quiet" onClick={() => handleApplyXToken(pendingXToken, false)}>
+                    Fill empty steps ({editingFlow.steps.filter((s) => !hasActiveXToken(s)).length})
+                  </button>
+                  <button className="btn-quiet" onClick={() => handleApplyXToken(pendingXToken, true)}>
+                    Override all steps ({editingFlow.steps.length})
+                  </button>
+                  <button className="btn-icon" onClick={() => setPendingXToken(null)} title="Cancel" style={{ marginLeft: 'auto' }}>
                     <XIcon />
                   </button>
                 </div>
