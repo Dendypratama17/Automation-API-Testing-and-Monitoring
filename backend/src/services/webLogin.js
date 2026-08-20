@@ -37,10 +37,17 @@ function findButtonByText(page, text) {
  * login page's structure doesn't match what's expected, or the credentials
  * are rejected.
  */
-async function fetchWebLoginToken(cred) {
+async function fetchWebLoginToken(cred, signal) {
   if (!cred.login_url) throw new Error('This credential has no Login URL configured.');
+  if (signal?.aborted) throw new Error('Login cancelled.');
 
   const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  // Puppeteer has no AbortSignal support of its own — closing the browser
+  // out from under an in-progress page.goto/waitForSelector is what actually
+  // makes those calls reject promptly instead of running out their own
+  // (much longer) internal timeouts once Cancel is clicked mid-login.
+  const onAbort = () => { browser.close().catch(() => {}); };
+  signal?.addEventListener('abort', onAbort);
   try {
     const page = await browser.newPage();
     await page.goto(cred.login_url, { waitUntil: 'networkidle2', timeout: NAV_TIMEOUT_MS });
@@ -74,8 +81,12 @@ async function fetchWebLoginToken(cred) {
 
     const expiresCookie = cookies.find((c) => c.name === 'oauth/expires');
     return { token: tokenCookie.value, expires: expiresCookie ? decodeURIComponent(expiresCookie.value) : null };
+  } catch (err) {
+    if (signal?.aborted) throw new Error('Login cancelled.');
+    throw err;
   } finally {
-    await browser.close();
+    signal?.removeEventListener('abort', onAbort);
+    await browser.close().catch(() => {});
   }
 }
 
@@ -114,7 +125,14 @@ const inFlightLogins = new Map();
 // result — exactly the staleness invalidateTokenCache exists to prevent.
 const cacheGeneration = new Map();
 
-async function getWebLoginToken(cred) {
+// `signal` only ever comes from the caller that actually STARTS this login
+// (see the inFlight early-return below) — a caller that just joins someone
+// else's already-in-progress login has no way to abort it without also
+// yanking it out from under whichever run originally kicked it off, so it
+// simply waits like before. The one caller that did start it aborting also
+// stops it for anyone else riding along, but that's a rare edge case and a
+// clear improvement over Cancel doing nothing at all.
+async function getWebLoginToken(cred, signal) {
   const cached = tokenCache.get(cred.id);
   if (cached && cached.expiresAt - Date.now() > REFRESH_MARGIN_MS) {
     return cached.token;
@@ -127,8 +145,9 @@ async function getWebLoginToken(cred) {
   const loginPromise = (async () => {
     let lastErr;
     for (let attempt = 1; attempt <= MAX_LOGIN_ATTEMPTS; attempt++) {
+      if (signal?.aborted) throw new Error('Login cancelled.');
       try {
-        const { token, expires } = await fetchWebLoginToken(cred);
+        const { token, expires } = await fetchWebLoginToken(cred, signal);
         if ((cacheGeneration.get(cred.id) || 0) === generationAtStart) {
           const expiresAt = expires ? Date.parse(expires) : NaN;
           tokenCache.set(cred.id, { token, expiresAt: Number.isNaN(expiresAt) ? Date.now() + 10 * 60 * 1000 : expiresAt });
@@ -137,6 +156,7 @@ async function getWebLoginToken(cred) {
       } catch (err) {
         lastErr = err;
         console.error(`[webLogin] Login attempt ${attempt}/${MAX_LOGIN_ATTEMPTS} for "${cred.name}" failed: ${err.message}`);
+        if (signal?.aborted) break;
         if (attempt < MAX_LOGIN_ATTEMPTS && isRetryableLoginError(err)) {
           await sleep(RETRY_DELAY_MS);
           continue;

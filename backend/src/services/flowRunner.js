@@ -3,7 +3,7 @@ const { executeFlow } = require('./flowExecutor');
 const { notifyFlowIfNeeded } = require('./telegramNotifier');
 const { decrypt } = require('../utils/crypto');
 const { getWebLoginToken } = require('./webLogin');
-const { clearToken } = require('./runCancellation');
+const { isCancelled, clearToken, getAbortSignal } = require('./runCancellation');
 const { startFlowSegment } = require('./runProgress');
 
 // File fields carry a base64 blob (see FormDataEditor) — persisting that raw
@@ -50,6 +50,15 @@ async function runFlowAndPersist(flow, steps, environment, triggeredBy, schedule
   if (authIds.length) {
     const credResult = await pool.query('SELECT * FROM auth_credentials WHERE id = ANY($1)', [authIds]);
     for (const row of credResult.rows) {
+      // This whole resolution loop runs BEFORE executeFlow's own
+      // isCancelled check ever gets a chance to run — without checking here
+      // too, clicking Cancel while a slow (~15-20s) Web Login is still in
+      // flight, or before the next credential in this loop starts, did
+      // nothing at all, leaving the run stuck. `token` fetch itself is also
+      // abort-aware via getAbortSignal (see webLogin.js), so a login already
+      // in progress stops promptly instead of only being noticed here on
+      // its next loop iteration.
+      if (isCancelled(runToken)) break;
       if (row.type === 'web_login') {
         // Reuses a cached token until it's close to expiring (see
         // getWebLoginToken) instead of paying for a real ~15-20s browser
@@ -58,7 +67,7 @@ async function runFlowAndPersist(flow, steps, environment, triggeredBy, schedule
         // Authorization it already had configured (surfacing as that
         // step's own real HTTP error) instead of aborting the whole run.
         try {
-          const token = await getWebLoginToken({ ...row, password: decrypt(row.password) });
+          const token = await getWebLoginToken({ ...row, password: decrypt(row.password) }, getAbortSignal(runToken));
           authCredentials[row.id] = { ...row, token };
         } catch (err) {
           console.error(`[flowRunner] Web Login credential "${row.name}" failed: ${err.message}`);
@@ -77,7 +86,11 @@ async function runFlowAndPersist(flow, steps, environment, triggeredBy, schedule
   startFlowSegment(progressToken, flow.id, flow.name);
   let execution;
   try {
-    execution = await executeFlow(flow, steps, environment, previousSchemas, authCredentials, initialVariables, runToken, progressToken);
+    // Cancelled while still resolving credentials above — no step has run
+    // yet, so there's nothing for executeFlow itself to stop mid-way.
+    execution = isCancelled(runToken)
+      ? { status: 'CANCELLED', steps: [], variables: initialVariables }
+      : await executeFlow(flow, steps, environment, previousSchemas, authCredentials, initialVariables, runToken, progressToken);
   } finally {
     // ownsToken is false for a Batch Run: several of these calls share one
     // token (serially, or — for a Parallel batch — several genuinely AT ONCE),

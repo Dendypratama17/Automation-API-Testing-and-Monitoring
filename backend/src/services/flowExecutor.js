@@ -1,7 +1,7 @@
 const axios = require('axios');
 const crypto = require('crypto');
 const { generateSchema, diffSchema } = require('./schemaTool');
-const { isCancelled } = require('./runCancellation');
+const { isCancelled, getAbortSignal } = require('./runCancellation');
 const { pushProgress } = require('./runProgress');
 
 // SKIPPED ranks below PASS on purpose — a step deliberately not run (its
@@ -80,6 +80,9 @@ function describeConnectionError(err) {
     case 'ECONNABORTED':
       if (/timeout/i.test(raw)) return `Request timed out waiting for a response (15s limit). (${raw})`;
       break;
+  }
+  if (err.code === 'ERR_CANCELED' || err.name === 'CanceledError') {
+    return 'Cancelled by user.';
   }
   if (/aborted|socket hang up|ECONNRESET|EPIPE/i.test(raw)) {
     return `Connection was closed before a full response arrived — often caused by an upstream WAF/gateway/proxy blocking or resetting the request rather than returning a clean error status. Try replaying the same request with curl to confirm. (${raw})`;
@@ -388,7 +391,7 @@ function checkAssertions(assertions, response, responseTimeMs, variables = {}) {
 // several steps at once, not just one at a time. Whatever it extracts is
 // handed back for the caller to merge into the shared scope once the step
 // (or its whole parallel batch) has finished.
-async function runStep(step, baseVariables, flow, authCredentials, previousSchemas) {
+async function runStep(step, baseVariables, flow, authCredentials, previousSchemas, runToken) {
   // Waited before this step runs at all — e.g. giving an async backend
   // process (document indexing, a webhook) time to finish before the next
   // check, without hardcoding a delay into every step's own request. Runs
@@ -464,6 +467,7 @@ async function runStep(step, baseVariables, flow, authCredentials, previousSchem
       data: body,
       validateStatus: () => true,
       timeout: 15000,
+      signal: getAbortSignal(runToken),
     }, step.name);
     const responseTimeMs = Date.now() - start;
 
@@ -633,7 +637,7 @@ async function executeFlow(flow, steps, environment, previousSchemas = {}, authC
       }
     }
 
-    const results = await Promise.all(batch.map((step) => runStep(step, variables, flow, authCredentials, previousSchemas)));
+    const results = await Promise.all(batch.map((step) => runStep(step, variables, flow, authCredentials, previousSchemas, runToken)));
 
     let batchFailed = false;
     for (const { stepResult, extractedVariables } of results) {

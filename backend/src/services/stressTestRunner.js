@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const { decrypt } = require('../utils/crypto');
 const { getWebLoginToken } = require('./webLogin');
 const { resolveDeep, activeHeaders, requestWithRetry, describeConnectionError, buildRequestBody, formatTimestampWIB } = require('./flowExecutor');
-const { isCancelled } = require('./runCancellation');
+const { isCancelled, getAbortSignal } = require('./runCancellation');
 
 // Hard ceiling on both knobs, enforced server-side (not just whatever the
 // form happens to send) — this fires real requests at a real API, some of
@@ -15,17 +15,17 @@ const MAX_CONCURRENCY = 50;
 // test run authenticates as the same account, same as picking one credential
 // for a Flow step. A fresh Web Login token is fetched (or reused from cache)
 // exactly like a normal flow run would.
-async function resolveAuthHeader(credential) {
+async function resolveAuthHeader(credential, runToken) {
   if (!credential) return null;
   if (credential.type === 'web_login') {
-    const token = await getWebLoginToken({ ...credential, password: decrypt(credential.password) });
+    const token = await getWebLoginToken({ ...credential, password: decrypt(credential.password) }, getAbortSignal(runToken));
     return `Bearer ${token}`;
   }
   const basic = Buffer.from(`${credential.username}:${decrypt(credential.password)}`).toString('base64');
   return `Basic ${basic}`;
 }
 
-async function sendOneRequest(endpoint, environment, authHeaderValue) {
+async function sendOneRequest(endpoint, environment, authHeaderValue, runToken) {
   const variables = {
     base_url: environment.base_url,
     ...(environment.variables || {}),
@@ -56,6 +56,7 @@ async function sendOneRequest(endpoint, environment, authHeaderValue) {
       data: body,
       validateStatus: () => true,
       timeout: 15000,
+      signal: getAbortSignal(runToken),
     }, endpoint.name);
     return { ok: response.status < 400, status: response.status, ms: Date.now() - start };
   } catch (err) {
@@ -113,7 +114,7 @@ async function runStressTest({ endpoint, environment, credential, totalRequests,
   // Resolved (and, for Web Login, possibly a real ~15-20s sign-in) BEFORE
   // the clock below starts — that's setup, not part of the endpoint's own
   // throughput.
-  const authHeaderValue = await resolveAuthHeader(credential);
+  const authHeaderValue = await resolveAuthHeader(credential, runToken);
   const results = [];
   let started = 0;
 
@@ -121,7 +122,7 @@ async function runStressTest({ endpoint, environment, credential, totalRequests,
     while (started < totalRequests) {
       if (isCancelled(runToken)) break;
       started += 1;
-      results.push(await sendOneRequest(endpoint, environment, authHeaderValue));
+      results.push(await sendOneRequest(endpoint, environment, authHeaderValue, runToken));
     }
   };
   const wallClockStart = Date.now();
