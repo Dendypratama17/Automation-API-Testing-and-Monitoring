@@ -1050,7 +1050,18 @@ export default function Flows() {
       return cred ? cred.type !== 'web_login' : false;
     }
     const raw = getAuthHeaderValue(step.headersRows).trim();
-    return !!raw && !/^bearer\s/i.test(raw);
+    if (!raw) return false;
+    // A bare token with no scheme word at all (e.g. a JWT pasted straight
+    // from a curl capture, missing its "Bearer " prefix) isn't "using a
+    // non-Bearer scheme" — it's just missing the label. runStep on the
+    // backend already treats this the same way (auto-prepending "Bearer "
+    // whenever there's no scheme prefix at all — see flowExecutor.js) —
+    // this must match that leniency, or a step like that silently gets
+    // excluded from BOTH "Fill empty" and "Override all" forever, with no
+    // error to explain why. Only an EXPLICIT non-Bearer scheme word (Basic,
+    // Digest, ...) is actually off-limits.
+    const hasSchemeWord = /^[a-z]+\s/i.test(raw);
+    return hasSchemeWord && !/^bearer\s/i.test(raw);
   };
 
   // "Fill empty" only ever touches steps with no Authorization yet — always
