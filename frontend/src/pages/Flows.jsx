@@ -2170,6 +2170,7 @@ export default function Flows() {
                         borderColor={stepErrors[idx]?.endpoint
                           ? 'var(--fail)'
                           : (!step.endpoint_id && !step.url_template ? 'var(--accent)' : undefined)}
+                        singleLineTabs
                       />
                       {(step.endpoint_id || step.url_template) && (
                         <select
