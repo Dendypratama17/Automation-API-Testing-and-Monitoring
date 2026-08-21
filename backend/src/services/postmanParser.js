@@ -24,11 +24,28 @@ function extractBody(bodyField) {
     catch { return { body: bodyField.raw, bodyType: 'json' }; }
   }
   if (bodyField.mode === 'urlencoded' || bodyField.mode === 'formdata') {
-    const obj = {};
+    // Array of [key, value] tuples, not a {key: value} object — a Postman
+    // formdata field name can legitimately repeat (e.g. two separate
+    // "documents" file parts for a multi-file upload), which a plain
+    // object can't hold without the second silently overwriting the first
+    // (the exact bug this same shape was introduced for on the curl-import
+    // path — see curlParser.js).
+    const entries = [];
     for (const kv of bodyField[bodyField.mode] || []) {
-      if (!kv.disabled) obj[kv.key] = kv.value;
+      if (kv.disabled) continue;
+      // A Postman file-type formdata field carries the local path(s) it was
+      // captured with under `src`, not `value` — that path only ever
+      // existed on whichever machine exported the collection, so treat it
+      // the same dead "needs re-attaching" placeholder a curl `-F key=@path`
+      // import gets (see FormDataEditor.jsx's FILE_PLACEHOLDER_RE).
+      if (kv.type === 'file') {
+        const src = Array.isArray(kv.src) ? kv.src[0] : kv.src;
+        entries.push([kv.key, `@file:${src || ''}`]);
+      } else {
+        entries.push([kv.key, kv.value]);
+      }
     }
-    return { body: obj, bodyType: 'form-data' };
+    return { body: entries, bodyType: 'form-data' };
   }
   return { body: null, bodyType: 'json' };
 }

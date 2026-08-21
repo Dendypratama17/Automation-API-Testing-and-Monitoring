@@ -16,9 +16,29 @@ import { writeJsonDiffDraft } from '../utils/jsonDiffDraft.js';
 // object (one "key": value line per entry, duplicates included) purely for
 // this read-only display — real JSON.stringify still handles everything
 // else (nested objects/arrays/primitives) exactly as before.
+// A real API response can legitimately BE an array of 2-element string
+// tuples (e.g. `[["us","United States"],["ca","Canada"]]`) — structure
+// alone can't tell that apart from our own form-data body shape, and
+// JsonBlock renders both Request AND Response bodies, so guessing wrong
+// would silently corrupt what a real response looks like (including what
+// gets copied/sent to JSON Diff). Requiring an actual `__file__`/
+// `__file_url__` marker somewhere inside removes that ambiguity — no
+// unrelated API response would ever happen to contain one of our internal
+// markers, and it's exactly what's present in every real case this
+// compacting was built for (a form-data body with an attached file).
+function containsFileMarker(value) {
+  if (Array.isArray(value)) return value.some(containsFileMarker);
+  if (value && typeof value === 'object') {
+    if (value.__file__ || value.__file_url__) return true;
+    return Object.values(value).some(containsFileMarker);
+  }
+  return false;
+}
+
 function isTupleArray(value) {
   return Array.isArray(value) && value.length > 0
-    && value.every((el) => Array.isArray(el) && el.length === 2 && typeof el[0] === 'string');
+    && value.every((el) => Array.isArray(el) && el.length === 2 && typeof el[0] === 'string')
+    && value.some(([, v]) => containsFileMarker(v));
 }
 
 function stringifyForDisplay(value, indent = 0) {

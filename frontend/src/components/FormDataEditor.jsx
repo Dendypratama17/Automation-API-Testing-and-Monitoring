@@ -1,9 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import FilePicker from './FilePicker.jsx';
 import { GripIcon } from './icons.jsx';
 import { getTestFiles, getTestFile } from '../api/client';
 
-const emptyFormRow = () => ({ key: '', type: 'text', value: '', enabled: true, fileMeta: null });
+// Id lokal-saja (tidak pernah disimpan) supaya tiap baris punya identitas
+// yang stabil terlepas dari posisinya di array — dibutuhkan karena
+// pengambilan file dari library (handleLibraryPick) berjalan async, dan
+// kalau baris dicari ulang berdasarkan INDEX setelah drag-reorder terjadi
+// di tengah proses fetch, update-nya bisa nimpa baris yang salah.
+let formRowIdSeq = 0;
+const nextFormRowId = () => `row-${++formRowIdSeq}-${Math.random().toString(36).slice(2, 8)}`;
+
+const emptyFormRow = () => ({ _id: nextFormRowId(), key: '', type: 'text', value: '', enabled: true, fileMeta: null });
 
 // A "@file:/some/path" string is a dead placeholder left over from importing
 // a cURL command's `-F key=@/path/to/file` flag — the path only ever existed
@@ -25,13 +33,13 @@ export function objectToFormRows(body) {
   if (!entries.length) return [emptyFormRow()];
   return entries.map(([key, value]) => {
     if (value && typeof value === 'object' && value.__file_url__) {
-      return { key, type: 'file', value: '', enabled: true, fileMeta: { __url__: true, url: value.url || '' } };
+      return { _id: nextFormRowId(), key, type: 'file', value: '', enabled: true, fileMeta: { __url__: true, url: value.url || '' } };
     }
     if (value && typeof value === 'object' && value.__file__) {
-      return { key, type: 'file', value: '', enabled: true, fileMeta: { name: value.name, mimeType: value.mimeType, data: value.data } };
+      return { _id: nextFormRowId(), key, type: 'file', value: '', enabled: true, fileMeta: { name: value.name, mimeType: value.mimeType, data: value.data } };
     }
     if (typeof value === 'string' && FILE_PLACEHOLDER_RE.test(value)) {
-      return { key, type: 'file', value: '', enabled: true, fileMeta: null };
+      return { _id: nextFormRowId(), key, type: 'file', value: '', enabled: true, fileMeta: null };
     }
     // A plain nested object/array (not a file marker) only shows up here
     // after editing the JSON preview, which unwraps a field's JSON-encoded
@@ -39,9 +47,9 @@ export function objectToFormRows(body) {
     // back into text instead of letting `String(value)` produce the useless
     // "[object Object]", since a multipart field can only be a flat string.
     if (value && typeof value === 'object') {
-      return { key, type: 'text', value: JSON.stringify(value), enabled: true, fileMeta: null };
+      return { _id: nextFormRowId(), key, type: 'text', value: JSON.stringify(value), enabled: true, fileMeta: null };
     }
-    return { key, type: 'text', value: value == null ? '' : String(value), enabled: true, fileMeta: null };
+    return { _id: nextFormRowId(), key, type: 'text', value: value == null ? '' : String(value), enabled: true, fileMeta: null };
   });
 }
 
@@ -103,37 +111,56 @@ export default function FormDataEditor({ rows, onChange }) {
   const [testFiles, setTestFiles] = useState([]);
   useEffect(() => { getTestFiles().then(setTestFiles).catch(() => {}); }, []);
 
+  // handleLibraryPick/handleFilePick are async (they await a fetch/file
+  // read) — if a drag-reorder (or any other edit) happens while one is
+  // still in flight, its continuation must apply to the CURRENT rows, not
+  // whichever `rows` was in scope back when it started. A ref kept in sync
+  // every render always has the latest value, unlike the `rows` prop a
+  // stale closure would otherwise see.
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+
   // Reorder is purely local — same client-only model as the Flow editor's
   // step list (see Flows.jsx's handleDropStep): splice the dragged row out
   // and back in at the drop target, then hand the whole array to onChange.
   // Whatever eventually persists this (saving the endpoint/step) writes the
   // rows in whatever order they're in by then.
-  const [draggedIdx, setDraggedIdx] = useState(null);
-  const [dragOverIdx, setDragOverIdx] = useState(null);
+  const [draggedId, setDraggedId] = useState(null);
+  const [dragOverId, setDragOverId] = useState(null);
 
-  const handleDropRow = (targetIdx) => {
-    const fromIdx = draggedIdx;
-    setDraggedIdx(null);
-    setDragOverIdx(null);
-    if (fromIdx == null || fromIdx === targetIdx) return;
-    const next = [...rows];
+  const handleDropRow = (targetId) => {
+    const fromId = draggedId;
+    setDraggedId(null);
+    setDragOverId(null);
+    if (fromId == null || fromId === targetId) return;
+    const current = rowsRef.current;
+    const fromIdx = current.findIndex((r) => r._id === fromId);
+    const targetIdx = current.findIndex((r) => r._id === targetId);
+    if (fromIdx === -1 || targetIdx === -1) return;
+    const next = [...current];
     const [moved] = next.splice(fromIdx, 1);
     next.splice(targetIdx, 0, moved);
     onChange(next);
   };
 
-  const update = (idx, field, value) => {
-    const next = [...rows];
-    next[idx] = { ...next[idx], [field]: value };
-    onChange(next);
+  // Addressed by the row's stable _id, not its array index — an async
+  // continuation (see above) that resolves after a reorder must still land
+  // on the SAME row it started with, not whatever row now happens to sit
+  // at the original index.
+  const update = (id, field, value) => {
+    onChange(rowsRef.current.map((r) => (r._id === id ? { ...r, [field]: value } : r)));
   };
   const addRow = () => onChange([...rows, emptyFormRow()]);
-  const removeRow = (idx) => onChange(rows.length > 1 ? rows.filter((_, i) => i !== idx) : [emptyFormRow()]);
+  const removeRow = (id) => {
+    const current = rowsRef.current;
+    const next = current.filter((r) => r._id !== id);
+    onChange(next.length ? next : [emptyFormRow()]);
+  };
 
-  const handleLibraryPick = async (idx, testFileId) => {
+  const handleLibraryPick = async (id, testFileId) => {
     if (!testFileId) return;
     const tf = await getTestFile(testFileId);
-    update(idx, 'fileMeta', { name: tf.file_name, mimeType: tf.mime_type, data: tf.data });
+    update(id, 'fileMeta', { name: tf.file_name, mimeType: tf.mime_type, data: tf.data });
   };
 
   // A "File" field with nothing attached yet defaults to the first Test File
@@ -143,44 +170,42 @@ export default function FormDataEditor({ rows, onChange }) {
   // import placeholder) once the library finishes loading.
   useEffect(() => {
     if (testFiles.length === 0) return;
-    const missingIdx = rows.findIndex((r) => r.type === 'file' && !r.fileMeta);
-    if (missingIdx === -1) return;
-    handleLibraryPick(missingIdx, testFiles[0].id);
+    const missing = rows.find((r) => r.type === 'file' && !r.fileMeta);
+    if (!missing) return;
+    handleLibraryPick(missing._id, testFiles[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testFiles, rows]);
 
-  const handleTypeChange = (idx, type) => {
-    const next = [...rows];
-    next[idx] = { ...next[idx], type, value: '', fileMeta: null };
-    onChange(next);
+  const handleTypeChange = (id, type) => {
+    onChange(rowsRef.current.map((r) => (r._id === id ? { ...r, type, value: '', fileMeta: null } : r)));
   };
 
-  const handleFilePick = async (idx, file) => {
+  const handleFilePick = async (id, file) => {
     if (!file) return;
     const data = await readFileAsBase64(file);
-    update(idx, 'fileMeta', { name: file.name, mimeType: file.type || 'application/octet-stream', data });
+    update(id, 'fileMeta', { name: file.name, mimeType: file.type || 'application/octet-stream', data });
   };
 
   return (
     <div className="stack" style={{ gap: 6 }}>
-      {rows.map((row, idx) => (
+      {rows.map((row) => (
         <div
-          key={idx}
+          key={row._id}
           className="form-data-row"
-          onDragOver={(e) => { e.preventDefault(); if (dragOverIdx !== idx) setDragOverIdx(idx); }}
-          onDragLeave={() => setDragOverIdx((i) => (i === idx ? null : i))}
-          onDrop={() => handleDropRow(idx)}
+          onDragOver={(e) => { e.preventDefault(); if (dragOverId !== row._id) setDragOverId(row._id); }}
+          onDragLeave={() => setDragOverId((id) => (id === row._id ? null : id))}
+          onDrop={() => handleDropRow(row._id)}
           style={{
-            opacity: draggedIdx === idx ? 0.4 : 1,
-            borderTop: dragOverIdx === idx && draggedIdx !== idx ? '2px solid var(--accent)' : undefined,
+            opacity: draggedId === row._id ? 0.4 : 1,
+            borderTop: dragOverId === row._id && draggedId !== row._id ? '2px solid var(--accent)' : undefined,
           }}
         >
           <span
             className="hint"
             style={{ cursor: 'grab' }}
             draggable
-            onDragStart={(e) => { e.stopPropagation(); setDraggedIdx(idx); }}
-            onDragEnd={() => { setDraggedIdx(null); setDragOverIdx(null); }}
+            onDragStart={(e) => { e.stopPropagation(); setDraggedId(row._id); }}
+            onDragEnd={() => { setDraggedId(null); setDragOverId(null); }}
             title="Drag to reorder"
           >
             <GripIcon />
@@ -188,16 +213,16 @@ export default function FormDataEditor({ rows, onChange }) {
           <input
             type="checkbox"
             checked={row.enabled !== false}
-            onChange={(e) => update(idx, 'enabled', e.target.checked)}
+            onChange={(e) => update(row._id, 'enabled', e.target.checked)}
             title={row.enabled === false ? 'Enable this row' : 'Disable this row'}
           />
           <input
             placeholder="Key"
             value={row.key}
-            onChange={(e) => update(idx, 'key', e.target.value)}
+            onChange={(e) => update(row._id, 'key', e.target.value)}
             style={{ minWidth: 0, opacity: row.enabled === false ? 0.5 : 1 }}
           />
-          <select value={row.type} onChange={(e) => handleTypeChange(idx, e.target.value)} style={{ opacity: row.enabled === false ? 0.5 : 1 }}>
+          <select value={row.type} onChange={(e) => handleTypeChange(row._id, e.target.value)} style={{ opacity: row.enabled === false ? 0.5 : 1 }}>
             <option value="text">Text</option>
             <option value="file">File</option>
           </select>
@@ -209,14 +234,14 @@ export default function FormDataEditor({ rows, onChange }) {
                   <input
                     placeholder="https://... or {{variable}}"
                     value={row.fileMeta.url}
-                    onChange={(e) => update(idx, 'fileMeta', { __url__: true, url: e.target.value })}
+                    onChange={(e) => update(row._id, 'fileMeta', { __url__: true, url: e.target.value })}
                     style={{ minWidth: 0, flex: 1 }}
                   />
                   <button
                     type="button"
                     className="btn-quiet"
                     title="Switch back to upload/library file"
-                    onClick={() => update(idx, 'fileMeta', null)}
+                    onClick={() => update(row._id, 'fileMeta', null)}
                   >
                     Use file instead
                   </button>
@@ -225,10 +250,10 @@ export default function FormDataEditor({ rows, onChange }) {
                 <FilePicker
                   label="Attach File"
                   fileName={row.fileMeta?.name}
-                  onFileSelect={(e) => handleFilePick(idx, e.target.files[0])}
+                  onFileSelect={(e) => handleFilePick(row._id, e.target.files[0])}
                   libraryOptions={testFiles}
-                  onLibrarySelect={(testFileId) => handleLibraryPick(idx, testFileId)}
-                  onUseUrl={() => update(idx, 'fileMeta', { __url__: true, url: '' })}
+                  onLibrarySelect={(testFileId) => handleLibraryPick(row._id, testFileId)}
+                  onUseUrl={() => update(row._id, 'fileMeta', { __url__: true, url: '' })}
                 />
               )}
             </div>
@@ -236,12 +261,12 @@ export default function FormDataEditor({ rows, onChange }) {
             <input
               placeholder="Value"
               value={row.value}
-              onChange={(e) => update(idx, 'value', e.target.value)}
+              onChange={(e) => update(row._id, 'value', e.target.value)}
               style={{ minWidth: 0, opacity: row.enabled === false ? 0.5 : 1 }}
             />
           )}
 
-          <button className="btn-quiet" onClick={() => removeRow(idx)}>✕</button>
+          <button className="btn-quiet" onClick={() => removeRow(row._id)}>✕</button>
         </div>
       ))}
       <button onClick={addRow} style={{ alignSelf: 'flex-start' }}>+ Add</button>

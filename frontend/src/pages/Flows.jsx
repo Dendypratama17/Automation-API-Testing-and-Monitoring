@@ -1482,7 +1482,8 @@ export default function Flows() {
         return { result, error: null, stoppedByUser: false };
       } catch (err) {
         if (err.response?.status === 412 && !confirmProd) {
-          if (await confirm(err.response.data.message + ' Continue?')) {
+          const message = err.response?.data?.message || 'Confirmation required.';
+          if (await confirm(`${message} Continue?`)) {
             confirmProd = true;
             continue;
           }
@@ -1536,24 +1537,32 @@ export default function Flows() {
     setError('');
     repeatCancelledRef.current = false;
 
-    for (let i = 1; i <= totalRepeats; i++) {
-      if (repeatCancelledRef.current) break;
-      setRepeatIndex(i);
-      const pass = await runOneBatchPass(selected, envIds[0]);
-      if (pass.stoppedByUser) { repeatCancelledRef.current = true; break; }
-      if (totalRepeats > 1) {
-        setRepeatResults((prev) => [...(prev || []), { result: pass.result, error: pass.error }]);
-      } else {
-        if (pass.result) setBatchRunResult(pass.result);
-        if (pass.error) setError(pass.error);
+    // A try/finally around the loop itself, not just relying on
+    // runOneBatchPass's own try/catch — if literally anything in here ever
+    // throws unexpectedly (a future edit, an unhandled edge case), `running`
+    // must still get cleared instead of leaving the whole page's run/cancel
+    // controls stuck disabled forever (they all gate on `disabled={running}`)
+    // until a full reload.
+    try {
+      for (let i = 1; i <= totalRepeats; i++) {
+        if (repeatCancelledRef.current) break;
+        setRepeatIndex(i);
+        const pass = await runOneBatchPass(selected, envIds[0]);
+        if (pass.stoppedByUser) { repeatCancelledRef.current = true; break; }
+        if (totalRepeats > 1) {
+          setRepeatResults((prev) => [...(prev || []), { result: pass.result, error: pass.error }]);
+        } else {
+          if (pass.result) setBatchRunResult(pass.result);
+          if (pass.error) setError(pass.error);
+        }
       }
+    } finally {
+      setRunning(false);
+      setRunningToken(null);
+      setRunningIsBatch(false);
+      setCancelling(false);
+      setRepeatIndex(0);
     }
-
-    setRunning(false);
-    setRunningToken(null);
-    setRunningIsBatch(false);
-    setCancelling(false);
-    setRepeatIndex(0);
   };
 
   // Runs one step in isolation (no chaining from other steps) — for quickly
