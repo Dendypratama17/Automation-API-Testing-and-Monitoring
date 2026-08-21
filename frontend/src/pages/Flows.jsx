@@ -361,7 +361,7 @@ function sortGroupKeys(keys) {
 // it's purely "pick one of these to apply to every step." An optional
 // `groupBy` splits the list into labelled sections (e.g. one per
 // environment) instead of one long mixed list — see "Select account" below.
-function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title, groupBy, extraTopAction }) {
+function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title, groupBy, extraTopAction, accentBorder }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const wrapRef = useRef(null);
@@ -403,7 +403,11 @@ function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title,
   };
 
   return (
-    <div ref={wrapRef} className="cred-select-combo" style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+    <div
+      ref={wrapRef}
+      className="cred-select-combo"
+      style={{ position: 'relative', flex: 1, minWidth: 0, ...(accentBorder ? { borderColor: 'var(--accent)' } : null) }}
+    >
       <button
         type="button"
         className="cred-select-combo-input"
@@ -1251,6 +1255,15 @@ export default function Flows() {
   useEffect(() => {
     if (running) runningCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [running]);
+
+  // Fires on the false->true transition only (see the `!!editingFlow`
+  // boolean dependency) — not on every keystroke while the form is already
+  // open, which would otherwise re-run this on every setEditingFlow call.
+  const newFlowPanelRef = useRef(null);
+  const isEditingFlowOpen = !!editingFlow;
+  useEffect(() => {
+    if (isEditingFlowOpen) newFlowPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [isEditingFlowOpen]);
   useEffect(() => {
     if (running && liveTotalSteps > 0) {
       window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
@@ -1805,7 +1818,7 @@ export default function Flows() {
           )}
 
           {editingFlow && (
-            <div className="card">
+            <div className="card" ref={newFlowPanelRef}>
               <div className="toolbar" style={{ marginBottom: 8 }}>
                 <input
                   placeholder="Flow name (optional)"
@@ -1843,6 +1856,7 @@ export default function Flows() {
                 <BulkSelectDropdown
                   placeholder="Select account"
                   title="Pick a credential, then choose whether to only fill empty steps or override every step's Authorization."
+                  accentBorder
                   options={authCredentials}
                   groupBy={(c) => c.environment_name || 'No Environment'}
                   renderOption={(c) => (
@@ -2015,7 +2029,7 @@ export default function Flows() {
                           minWidth: 0,
                           borderColor: stepErrors[idx]?.endpoint
                             ? 'var(--fail)'
-                            : (!step.endpoint_id && !step.url_template ? 'var(--drift)' : undefined),
+                            : (!step.endpoint_id && !step.url_template ? 'var(--accent)' : undefined),
                         }}
                       >
                         <option value="__paste_curl__">Paste curl...</option>
