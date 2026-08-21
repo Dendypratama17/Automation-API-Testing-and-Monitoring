@@ -288,7 +288,38 @@ function createReportContext(doc) {
     });
   };
 
-  return { drawHeaderBand, drawDivider, drawFooter, renderFlowResult };
+  // A compact "which repeats passed" table before the full per-repeat detail
+  // — worth having up front since a repeated run can be dozens of passes
+  // long and scrolling/paging through all of them just to see which ones
+  // failed defeats the point of a summary.
+  const drawRepeatSummaryTable = (rows) => {
+    addText('Summary', { size: 11, style: 'bold', gapBefore: 4 });
+    rows.forEach((r) => {
+      ensureSpace(22);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...INK);
+      doc.text(`Repeat ${r.index}`, margin, y);
+      drawBadge(r.error ? 'ERROR' : (r.passed ? 'PASS' : 'FAIL'), margin + 80, y - 11, statusColor(r.error ? 'ERROR' : (r.passed ? 'PASS' : 'FAIL')));
+      y += 20;
+    });
+    y += 6;
+  };
+
+  // Section title before one repeat's own full flow/step detail.
+  const drawRepeatHeader = (index, total, passed, hasError) => {
+    ensureSpace(30);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12.5);
+    doc.setTextColor(...INK);
+    const label = `Repeat ${index} of ${total}`;
+    doc.text(label, margin, y);
+    const status = hasError ? 'ERROR' : (passed ? 'PASS' : 'FAIL');
+    drawBadge(status, margin + doc.getTextWidth(label) + 10, y - 11, statusColor(status));
+    y += 20;
+  };
+
+  return { drawHeaderBand, drawDivider, drawFooter, renderFlowResult, drawRepeatSummaryTable, drawRepeatHeader, addText };
 }
 
 function buildRunResultPdf(runResult) {
@@ -314,6 +345,44 @@ function buildBatchRunResultPdf(batchResult) {
   return { doc, filename: `batch-run-${nameSlug ? `${nameSlug}-` : ''}${batchResult.results.map((r) => r.flow_id).join('-')}.pdf` };
 }
 
+// repeatResults: array of { result: { results: [...] } | null, error: string | null }
+// — one entry per pass of "Run Selected xN" (see Flows.jsx's handleBatchRun).
+// Every pass runs the exact same selected flows, so the flow list is read
+// off whichever pass actually has a result, not assumed to be the first.
+function buildRepeatBatchRunResultPdf(repeatResults, totalRepeats) {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const ctx = createReportContext(doc);
+
+  const passed = (rr) => !!rr.result && !rr.error && rr.result.results.every((r) => !r.error && r.flow_run?.status === 'PASS');
+  const passCount = repeatResults.filter(passed).length;
+  const flowNames = (repeatResults.find((rr) => rr.result)?.result.results || []).map((r) => r.flow_name || `Flow #${r.flow_id}`);
+
+  ctx.drawHeaderBand(`Repeated Batch Run Report — ${passCount}/${repeatResults.length} of ${totalRepeats}x passed`);
+  ctx.addText(
+    `Flows in this batch (${flowNames.length}): ${flowNames.join(', ') || '-'}`,
+    { size: 9.5, color: MUTED, gapBefore: 2 }
+  );
+  ctx.drawRepeatSummaryTable(repeatResults.map((rr, i) => ({ index: i + 1, passed: passed(rr), error: rr.error })));
+  ctx.drawDivider();
+
+  repeatResults.forEach((rr, i) => {
+    ctx.drawRepeatHeader(i + 1, repeatResults.length, passed(rr), !!rr.error);
+    if (rr.error) {
+      ctx.addText(String(rr.error), { size: 9, color: MUTED, gapBefore: 4 });
+    } else if (rr.result) {
+      rr.result.results.forEach((r, idx) => {
+        ctx.renderFlowResult(r);
+        if (idx < rr.result.results.length - 1) ctx.drawDivider();
+      });
+    }
+    if (i < repeatResults.length - 1) ctx.drawDivider();
+  });
+
+  ctx.drawFooter();
+  const nameSlug = flowNames.map(slugifyForFilename).filter(Boolean).join('_').slice(0, 80);
+  return { doc, filename: `repeat-batch-run-${nameSlug ? `${nameSlug}-` : ''}x${repeatResults.length}.pdf` };
+}
+
 export function exportRunResultToPdf(runResult) {
   const { doc, filename } = buildRunResultPdf(runResult);
   doc.save(filename);
@@ -335,6 +404,18 @@ export function exportBatchRunResultToPdf(batchResult) {
 
 export function getBatchRunResultPdfBase64(batchResult) {
   const { doc, filename } = buildBatchRunResultPdf(batchResult);
+  const dataUri = doc.output('datauristring');
+  const base64 = dataUri.slice(dataUri.indexOf(',') + 1);
+  return { base64, filename };
+}
+
+export function exportRepeatBatchRunResultToPdf(repeatResults, totalRepeats) {
+  const { doc, filename } = buildRepeatBatchRunResultPdf(repeatResults, totalRepeats);
+  doc.save(filename);
+}
+
+export function getRepeatBatchRunResultPdfBase64(repeatResults, totalRepeats) {
+  const { doc, filename } = buildRepeatBatchRunResultPdf(repeatResults, totalRepeats);
   const dataUri = doc.output('datauristring');
   const base64 = dataUri.slice(dataUri.indexOf(',') + 1);
   return { base64, filename };

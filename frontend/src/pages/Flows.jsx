@@ -22,7 +22,10 @@ import AuthorizationField from '../components/AuthorizationField.jsx';
 import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
 import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
-import { exportRunResultToPdf, getRunResultPdfBase64, exportBatchRunResultToPdf, getBatchRunResultPdfBase64 } from '../utils/exportRunResultPdf.js';
+import {
+  exportRunResultToPdf, getRunResultPdfBase64, exportBatchRunResultToPdf, getBatchRunResultPdfBase64,
+  exportRepeatBatchRunResultToPdf, getRepeatBatchRunResultPdfBase64,
+} from '../utils/exportRunResultPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
 import { loadSelectedFolder, saveSelectedFolder, hasStoredFolder } from '../utils/persistedFolder.js';
 import ScrollToTopButton from '../components/ScrollToTopButton.jsx';
@@ -612,6 +615,7 @@ export default function Flows() {
   const [runResult, setRunResult] = useState(null);
   const [sharingRunResult, setSharingRunResult] = useState(false);
   const [sharingBatchRunResult, setSharingBatchRunResult] = useState(false);
+  const [sharingRepeatResults, setSharingRepeatResults] = useState(false);
   const [running, setRunning] = useState(false);
   const [runningFlowId, setRunningFlowId] = useState(null);
   const [runningToken, setRunningToken] = useState(null);
@@ -1479,6 +1483,24 @@ export default function Flows() {
       showToast(err.response?.data?.error || err.message, 'error');
     } finally {
       setSharingBatchRunResult(false);
+    }
+  };
+
+  const handleShareRepeatResultsToTelegram = async () => {
+    setSharingRepeatResults(true);
+    try {
+      const { base64, filename } = getRepeatBatchRunResultPdfBase64(repeatResults, runningRepeatCount);
+      const passCount = repeatResults.filter((rr) => rr.result && !rr.error && rr.result.results.every((r) => !r.error && r.flow_run?.status === 'PASS')).length;
+      await sendDocumentToTelegram({
+        filename,
+        caption: `Repeated Batch Run: ${passCount}/${repeatResults.length} of ${runningRepeatCount}x passed`,
+        fileBase64: base64,
+      });
+      showToast('Sent to Telegram.');
+    } catch (err) {
+      showToast(err.response?.data?.error || err.message, 'error');
+    } finally {
+      setSharingRepeatResults(false);
     }
   };
 
@@ -2491,7 +2513,17 @@ export default function Flows() {
             <div className="card">
               <div className="card-row">
                 <h4 style={{ margin: 0 }}>Run Selected x{runningRepeatCount} Result</h4>
-                <button className="btn-quiet" onClick={() => setRepeatResults(null)}>✕ Close</button>
+                <div className="toolbar">
+                  <OptionsMenu
+                    label="Export"
+                    title="Download this repeated batch run result as a PDF, or share it straight to Telegram"
+                    items={[
+                      { label: 'Download PDF', icon: <DownloadIcon />, onClick: () => exportRepeatBatchRunResultToPdf(repeatResults, runningRepeatCount) },
+                      { label: sharingRepeatResults ? 'Sharing...' : 'Share to Telegram', icon: <SendIcon />, onClick: handleShareRepeatResultsToTelegram, disabled: sharingRepeatResults },
+                    ]}
+                  />
+                  <button className="btn-quiet" onClick={() => setRepeatResults(null)}>✕ Close</button>
+                </div>
               </div>
               <p className="hint" style={{ marginTop: 4 }}>
                 {repeatResults.filter((rr) => batchPassAllFlows(rr.result)).length}/{repeatResults.length} repeat{repeatResults.length === 1 ? '' : 's'} fully passed
