@@ -440,12 +440,12 @@ function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title,
     const rect = wrapRef.current.getBoundingClientRect();
     const width = Math.max(rect.width, 320);
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 12));
-    // Kalau ruang di bawah trigger sempit, buka ke ATAS trigger saja selama
-    // ruang di atas lebih luas — daripada dropdown-nya kepotong di bawah
-    // tepi layar.
+    // Selalu pilih sisi (atas/bawah) yang ruangnya lebih besar, bukan cuma
+    // membuka ke atas kalau ruang bawah "kritis" sempit — supaya dropdown
+    // selalu memakai ruang yang paling luas yang tersedia.
     const spaceBelow = window.innerHeight - rect.bottom - 12;
     const spaceAbove = rect.top - 12;
-    const openUpward = spaceBelow < 220 && spaceAbove > spaceBelow;
+    const openUpward = spaceAbove > spaceBelow;
     const maxHeight = Math.max(160, Math.min(320, openUpward ? spaceAbove : spaceBelow));
     setPos(openUpward
       ? { bottom: window.innerHeight - rect.top + 4, left, width, maxHeight }
@@ -585,7 +585,7 @@ export default function Flows() {
   const [authCredentials, setAuthCredentials] = useState([]);
   const [defaultHeaders, setDefaultHeaders] = useState([]);
   // Config > Default Headers entries for the "X-Token" key — offered in the
-  // "Set X-Token" bulk picker below so switching every step to a different
+  // "Select x-token" bulk picker below so switching every step to a different
   // test account doesn't mean hand-editing each step's headers individually.
   const xTokenOptions = defaultHeaders.filter((h) => h.key.trim().toLowerCase() === 'x-token');
 
@@ -593,7 +593,7 @@ export default function Flows() {
   // fill mode (empty steps only, or override every step) before it's
   // actually applied — see handleApplyAuthCredential below.
   const [pendingAuthCredential, setPendingAuthCredential] = useState(null);
-  // Same idea as pendingAuthCredential, for a value picked from "Set X-Token"
+  // Same idea as pendingAuthCredential, for a value picked from "Select x-token"
   // — see handleApplyXToken below.
   const [pendingXToken, setPendingXToken] = useState(null);
   const [editingFlow, setEditingFlow] = useState(null);
@@ -1117,7 +1117,7 @@ export default function Flows() {
   };
 
   // Same fill-empty/override-all choice as handleApplyAuthCredential, for a
-  // value picked from "Set X-Token" — previously this always overwrote every
+  // value picked from "Select x-token" — previously this always overwrote every
   // step in one shot behind a single confirm, with no way to only fill in
   // the steps that didn't have one yet.
   const handleApplyXToken = async (h, overrideExisting) => {
@@ -1136,7 +1136,7 @@ export default function Flows() {
       if (!ok) return;
       const steps = editingFlow.steps.map((step) => setXTokenOnStep(step, h.value));
       setEditingFlow({ ...editingFlow, steps });
-      showToast(`Set X-Token to "${label}" for all ${steps.length} step${steps.length === 1 ? '' : 's'}.`);
+      showToast(`Select x-token to "${label}" for all ${steps.length} step${steps.length === 1 ? '' : 's'}.`);
     } else {
       if (emptyCount === 0) {
         showToast('Every step already has its own X-Token set — nothing to fill.');
@@ -1154,7 +1154,7 @@ export default function Flows() {
 
   // Unchecks (disables) every step's X-Token row instead of deleting it — the
   // value stays put so a step can be switched back on individually later,
-  // rather than someone having to re-pick "Set X-Token" from scratch.
+  // rather than someone having to re-pick "Select x-token" from scratch.
   const handleDisableXTokenForAll = async () => {
     const enabledCount = editingFlow.steps.filter((s) => (
       s.headersRows.some((r) => r.key.trim().toLowerCase() === 'x-token' && r.enabled !== false)
@@ -2013,7 +2013,7 @@ export default function Flows() {
                   onPick={(c) => setPendingAuthCredential(c)}
                 />
                 <BulkSelectDropdown
-                  placeholder="Set X-Token"
+                  placeholder="Select x-token"
                   title="Pick a value, then choose whether to only fill empty steps or override every step's X-Token."
                   options={xTokenOptions}
                   groupBy={(h) => h.environment_name || 'No Environment'}

@@ -54,13 +54,15 @@ export default function FolderPillPicker({
     const rect = wrapRef.current.getBoundingClientRect();
     const width = Math.max(rect.width, 360);
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 12));
-    // Kalau ruang di bawah trigger terlalu sempit (tab folder + search bikin
-    // popup ini lebih tinggi dari dropdown biasa), buka ke ATAS trigger
-    // saja selama ruang di atas lebih luas — daripada dropdown-nya
-    // kepotong di bawah tepi layar.
+    // Selalu pilih sisi (atas/bawah) yang ruangnya lebih besar — bukan cuma
+    // membuka ke atas kalau ruang bawah "kritis" sempit. Step ke-2/3/dst di
+    // flow yang panjang biasanya trigger-nya sudah di posisi bawah viewport
+    // begitu halaman di-scroll ke sana, jadi ruang bawah pas-pasan tapi
+    // masih di atas ambang lama — dropdown-nya jadi kependekan padahal
+    // ruang di atas jauh lebih luas.
     const spaceBelow = window.innerHeight - rect.bottom - 12;
     const spaceAbove = rect.top - 12;
-    const openUpward = spaceBelow < 220 && spaceAbove > spaceBelow;
+    const openUpward = spaceAbove > spaceBelow;
     // 480 (bukan 320) — daftar folder/item sekarang lebih panjang (ada tab
     // "All Folder" yang menampilkan semua section sekaligus), jadi kasih
     // ruang lebih dulu sebelum harus scroll, tetap dibatasi ruang layar
