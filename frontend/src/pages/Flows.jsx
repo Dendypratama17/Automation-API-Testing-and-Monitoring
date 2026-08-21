@@ -243,6 +243,42 @@ function StepResultRow({ step, isLast }) {
   );
 }
 
+// The per-flow-result list inside a Batch Run Result — factored out so the
+// same rendering can also appear (once per pass) inside a repeated batch
+// run's per-repeat expandable sections, without duplicating this mapping.
+function BatchResultsList({ results }) {
+  return (
+    <div className="stack" style={{ gap: 24 }}>
+      {results.map((r, fIdx) => (
+        <div
+          key={r.flow_id}
+          style={fIdx < results.length - 1 ? { borderBottom: '2px solid var(--border)', paddingBottom: 24 } : undefined}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <b style={{ fontSize: 14.5 }}>{r.flow_name || `Flow #${r.flow_id}`}</b>
+            {r.flow_run && <span className={`badge ${r.flow_run.status.toLowerCase()}`}>{r.flow_run.status}</span>}
+            {r.error && <span className="badge fail">ERROR</span>}
+          </div>
+          {r.error && <div className="error-text" style={{ marginTop: 8, fontSize: 13 }}>{r.error}</div>}
+          {r.steps && (
+            <div className="stack" style={{ marginTop: 14, gap: 20 }}>
+              {r.steps.map((s, idx) => (
+                <StepResultRow key={s.step_order} step={s} isLast={idx === r.steps.length - 1} />
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Whether every flow in one batch-run pass actually passed — used to badge
+// a repeat's own header PASS/FAIL without needing to expand it.
+function batchPassAllFlows(result) {
+  return !!result && result.results.every((r) => !r.error && r.flow_run?.status === 'PASS');
+}
+
 // Drops disabled header rows (stored as { __disabled__: true, value }, see
 // KeyValueEditor.jsx) entirely from the read-only View Flow display — a
 // header that won't actually be sent has no business appearing next to the
@@ -563,6 +599,26 @@ export default function Flows() {
   // safe for a selection of flows that don't depend on each other's output.
   const [runParallel, setRunParallel] = useState(false);
   const [batchRunResult, setBatchRunResult] = useState(null);
+  // How many times to run the whole selected batch back to back — editable
+  // only while nothing is running. > 1 switches the result panel from a
+  // single Batch Run Result to a per-repeat list (see repeatResults below);
+  // left at the default 1, everything behaves exactly as before this
+  // existed.
+  const [repeatCount, setRepeatCount] = useState(1);
+  // Snapshotted at run-start, same reasoning as runningParallel above — the
+  // input is disabled while running anyway, but this keeps the "Repeat X of
+  // N" progress label and the eventual result panel's title consistent even
+  // if that couldn't happen today.
+  const [runningRepeatCount, setRunningRepeatCount] = useState(1);
+  const [repeatIndex, setRepeatIndex] = useState(0);
+  // null while repeatCount was 1 for the run in progress/last finished —
+  // an array of { result, error } (one per completed repeat) once it's > 1.
+  const [repeatResults, setRepeatResults] = useState(null);
+  const [expandedRepeatIdx, setExpandedRepeatIdx] = useState(null);
+  // Cancel needs to stop the WHOLE repeat run, not just whichever single
+  // iteration happens to be in flight — a ref (not state) because it's read
+  // synchronously inside the run loop between iterations, not rendered.
+  const repeatCancelledRef = useRef(false);
   const [draggedFlowId, setDraggedFlowId] = useState(null);
   const [dragOverFlowId, setDragOverFlowId] = useState(null);
   const [draggedStepIdx, setDraggedStepIdx] = useState(null);
@@ -1310,6 +1366,10 @@ export default function Flows() {
 
   const handleCancelRun = async () => {
     if (!runningToken || cancelling) return;
+    // Stops the repeat loop from starting another pass once the current one
+    // settles — a no-op flag outside a repeated batch run, where nothing
+    // ever checks it.
+    repeatCancelledRef.current = true;
     setCancelling(true);
     try {
       await cancelFlowRun(runningToken);
@@ -1397,7 +1457,60 @@ export default function Flows() {
   // environment is already set on each selected flow's own Flow List row,
   // which all have to agree (a token extracted from a STG run shouldn't get
   // reused against RC, and running two envs at once wouldn't mean anything).
-  const handleBatchRun = async (confirmProd = false) => {
+  // Runs one pass of the selected batch and returns { result, error,
+  // stoppedByUser } — factored out of handleBatchRun so repeating it N
+  // times is just calling this in a loop. The PROD-confirmation handshake
+  // (412 -> confirm -> retry with confirm_prod: true) is handled entirely
+  // within this one call instead of the old recursive handleBatchRun(true)
+  // re-entry, since a loop needs a value back, not a tail call.
+  const runOneBatchPass = async (selected, envId) => {
+    const runToken = crypto.randomUUID();
+    setRunningToken(runToken);
+    let confirmProd = false;
+    while (true) {
+      try {
+        const result = await batchRunFlows({
+          // Follow the Flow List's current visual/drag order, not the Set's
+          // insertion order (which is whichever order the checkboxes were
+          // clicked in and can drift from the list after a reorder).
+          flow_ids: selected.map((f) => f.id),
+          environment_id: envId,
+          confirm_prod: confirmProd,
+          run_token: runToken,
+          parallel: runParallel,
+        });
+        return { result, error: null, stoppedByUser: false };
+      } catch (err) {
+        if (err.response?.status === 412 && !confirmProd) {
+          if (await confirm(err.response.data.message + ' Continue?')) {
+            confirmProd = true;
+            continue;
+          }
+          return { result: null, error: null, stoppedByUser: true };
+        }
+        return { result: null, error: err.response?.data?.error || err.message, stoppedByUser: false };
+      }
+    }
+  };
+
+  // Runs every selected flow against one environment — serial (default)
+  // chains each flow's extracted variables into the next (e.g. Login then
+  // Get Profile reusing the token Login extracted), parallel runs them all
+  // at once with no chaining (see runParallel) — see routes/flows.js
+  // /batch-run. No separate "batch environment" picker — reuses whichever
+  // environment is already set on each selected flow's own Flow List row,
+  // which all have to agree (a token extracted from a STG run shouldn't get
+  // reused against RC, and running two envs at once wouldn't mean anything).
+  //
+  // With repeatCount > 1, the whole batch runs again from the top that many
+  // times, one pass fully finishing before the next starts (never
+  // overlapping) — each pass gets its own run_token, so live progress and
+  // per-flow chaining reset cleanly at every repeat boundary. Every pass
+  // still runs even if an earlier one failed (kept simple/consistent — this
+  // is meant for flakiness/repeatability checks, not a stop-on-first-failure
+  // gate), and Cancel stops the whole repeat run, not just whichever pass
+  // is currently in flight (see repeatCancelledRef).
+  const handleBatchRun = async () => {
     const selected = flows.filter((f) => selectedFlowIds.has(f.id));
     if (selected.some((f) => !flowEnvIds[f.id])) {
       showToast('Set an environment for every selected flow first.', 'error');
@@ -1408,49 +1521,39 @@ export default function Flows() {
       showToast('Selected flows must all use the same environment to batch run together.', 'error');
       return;
     }
+    const totalRepeats = Math.max(1, Math.min(50, Number(repeatCount) || 1));
+
     setEditingFlow(null);
     setViewingFlow(null);
     setRunning(true);
-    // Same token drives live-progress polling (keyed off runningToken) and,
-    // via handleCancelRun below, cancellation — the backend now checks it at
-    // each flow boundary in the batch, not just mid-flow.
-    const runToken = crypto.randomUUID();
-    setRunningToken(runToken);
     setRunningIsBatch(true);
     setRunningParallel(runParallel);
+    setRunningRepeatCount(totalRepeats);
     setRunResult(null);
     setBatchRunResult(null);
+    setRepeatResults(totalRepeats > 1 ? [] : null);
+    setExpandedRepeatIdx(null);
     setError('');
-    let handedOff = false;
-    try {
-      const res = await batchRunFlows({
-        // Follow the Flow List's current visual/drag order, not the Set's
-        // insertion order (which is whichever order the checkboxes were
-        // clicked in and can drift from the list after a reorder).
-        flow_ids: selected.map((f) => f.id),
-        environment_id: envIds[0],
-        confirm_prod: confirmProd,
-        run_token: runToken,
-        parallel: runParallel,
-      });
-      setBatchRunResult(res);
-    } catch (err) {
-      if (err.response?.status === 412) {
-        if (await confirm(err.response.data.message + ' Continue?')) {
-          handedOff = true;
-          await handleBatchRun(true);
-          return;
-        }
+    repeatCancelledRef.current = false;
+
+    for (let i = 1; i <= totalRepeats; i++) {
+      if (repeatCancelledRef.current) break;
+      setRepeatIndex(i);
+      const pass = await runOneBatchPass(selected, envIds[0]);
+      if (pass.stoppedByUser) { repeatCancelledRef.current = true; break; }
+      if (totalRepeats > 1) {
+        setRepeatResults((prev) => [...(prev || []), { result: pass.result, error: pass.error }]);
       } else {
-        setError(err.response?.data?.error || err.message);
-      }
-    } finally {
-      if (!handedOff) {
-        setRunning(false);
-        setRunningToken(null);
-        setRunningIsBatch(false);
+        if (pass.result) setBatchRunResult(pass.result);
+        if (pass.error) setError(pass.error);
       }
     }
+
+    setRunning(false);
+    setRunningToken(null);
+    setRunningIsBatch(false);
+    setCancelling(false);
+    setRepeatIndex(0);
   };
 
   // Runs one step in isolation (no chaining from other steps) — for quickly
@@ -1568,13 +1671,23 @@ export default function Flows() {
                       <option value="serial">Serial</option>
                       <option value="parallel">Parallel</option>
                     </select>
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={repeatCount}
+                      onChange={(e) => setRepeatCount(e.target.value)}
+                      disabled={running}
+                      title="Runs the whole selected batch again from the top this many times, one pass finishing before the next starts."
+                      style={{ width: 56, textAlign: 'center' }}
+                    />
                     <button
                       className={`btn-success${running ? '' : ' btn-ready'}`}
                       onClick={() => handleBatchRun()}
                       disabled={running}
                       title="Uses whichever environment is already set on each selected flow's row — they all have to match."
                     >
-                      Run Selected ({selectedFlowIds.size})
+                      Run Selected ({selectedFlowIds.size}){Number(repeatCount) > 1 ? ` x${Number(repeatCount)}` : ''}
                     </button>
                   </>
                 )}
@@ -2245,6 +2358,9 @@ export default function Flows() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span className="spinner" />
                   <span className="hint">{cancelling ? 'Cancelling…' : runningIsBatch ? 'Running batch…' : 'Running flow…'}</span>
+                  {runningRepeatCount > 1 && (
+                    <span className="hint">Repeat {repeatIndex} of {runningRepeatCount}</span>
+                  )}
                   {liveTotalSteps > 0 && (
                     <span className="hint">{liveTotalSteps} step{liveTotalSteps === 1 ? '' : 's'} done so far</span>
                   )}
@@ -2332,33 +2448,58 @@ export default function Flows() {
                   <button className="btn-quiet" onClick={() => setBatchRunResult(null)}>✕ Close</button>
                 </div>
               </div>
-              <div className="stack" style={{ marginTop: 16, gap: 24 }}>
-                {batchRunResult.results.map((r, fIdx) => (
-                  <div
-                    key={r.flow_id}
-                    style={fIdx < batchRunResult.results.length - 1 ? { borderBottom: '2px solid var(--border)', paddingBottom: 24 } : undefined}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <b style={{ fontSize: 14.5 }}>{r.flow_name || `Flow #${r.flow_id}`}</b>
-                      {r.flow_run && <span className={`badge ${r.flow_run.status.toLowerCase()}`}>{r.flow_run.status}</span>}
-                      {r.error && <span className="badge fail">ERROR</span>}
+              <div style={{ marginTop: 16 }}>
+                <BatchResultsList results={batchRunResult.results} />
+              </div>
+            </div>
+          )}
+
+          {repeatResults && (
+            <div className="card">
+              <div className="card-row">
+                <h4 style={{ margin: 0 }}>Run Selected x{runningRepeatCount} Result</h4>
+                <button className="btn-quiet" onClick={() => setRepeatResults(null)}>✕ Close</button>
+              </div>
+              <p className="hint" style={{ marginTop: 4 }}>
+                {repeatResults.filter((rr) => batchPassAllFlows(rr.result)).length}/{repeatResults.length} repeat{repeatResults.length === 1 ? '' : 's'} fully passed
+                {repeatResults.length < runningRepeatCount && !running ? ' — stopped early' : ''}
+              </p>
+              <div className="stack" style={{ marginTop: 16, gap: 8 }}>
+                {repeatResults.map((rr, i) => {
+                  const isOpen = expandedRepeatIdx === i;
+                  const passed = batchPassAllFlows(rr.result);
+                  return (
+                    <div key={i} className="panel" style={{ padding: 0 }}>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedRepeatIdx(isOpen ? null : i)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                          padding: '10px 14px', background: 'transparent', border: 'none',
+                          color: 'var(--text)', cursor: 'pointer', textAlign: 'left',
+                        }}
+                      >
+                        <ChevronIcon style={{ transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)', flexShrink: 0 }} />
+                        <b>Repeat {i + 1}</b>
+                        {rr.error
+                          ? <span className="badge fail">ERROR</span>
+                          : <span className={`badge ${passed ? 'pass' : 'fail'}`}>{passed ? 'PASS' : 'FAIL'}</span>}
+                      </button>
+                      {isOpen && (
+                        <div style={{ padding: '0 14px 14px' }}>
+                          {rr.error && <div className="error-text" style={{ marginBottom: 8 }}>{rr.error}</div>}
+                          {rr.result && <BatchResultsList results={rr.result.results} />}
+                        </div>
+                      )}
                     </div>
-                    {r.error && <div className="error-text" style={{ marginTop: 8, fontSize: 13 }}>{r.error}</div>}
-                    {r.steps && (
-                      <div className="stack" style={{ marginTop: 14, gap: 20 }}>
-                        {r.steps.map((s, idx) => (
-                          <StepResultRow key={s.step_order} step={s} isLast={idx === r.steps.length - 1} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
         </div>
       </div>
-      <ScrollToTopButton active={!!(runResult || batchRunResult)} />
+      <ScrollToTopButton active={!!(runResult || batchRunResult || repeatResults)} />
       <ScrollToTopButton active={running && liveTotalSteps >= 5 && scrolledPastFifthStep} skipBottomCheck />
     </div>
   );
