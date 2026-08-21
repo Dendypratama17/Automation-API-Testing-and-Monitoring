@@ -13,6 +13,7 @@ import { DownloadIcon, ChevronIcon, EditIcon, StopIcon, TrashIcon } from '../com
 import { exportRunResultToPdf } from '../utils/exportRunResultPdf.js';
 import { exportScheduleSummaryToPdf } from '../utils/exportScheduleSummaryPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
+import FolderPillPicker from '../components/FolderPillPicker.jsx';
 
 const CRON_PRESETS = [
   { label: 'Every 30 seconds', value: '*/30 * * * * *' },
@@ -302,14 +303,6 @@ export default function Schedules() {
     ? schedules.find((s) => s.id === viewingSchedule.schedule.id) || viewingSchedule.schedule
     : null;
 
-  const flowFolderNameById = Object.fromEntries(flowFolders.map((f) => [f.id, f.name]));
-  const flowsByFolder = flows.reduce((acc, f) => {
-    const key = f.folder_id ?? 'none';
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(f);
-    return acc;
-  }, {});
-
   return (
     <div>
       <div className="page-header">
@@ -345,18 +338,17 @@ export default function Schedules() {
               {DURATION_PRESETS.map((p) => <option key={p.value} value={p.value}>Run for {p.label}</option>)}
             </select>
           )}
-          <select
+          <FolderPillPicker
             value={form.flow_id}
-            onChange={(e) => { setForm({ ...form, flow_id: e.target.value }); setFormErrors({ ...formErrors, flow: false }); }}
-            style={{ flexShrink: 0, width: 200, borderColor: formErrors.flow ? 'var(--fail)' : undefined }}
-          >
-            <option value="">Select Flow</option>
-            {Object.entries(flowsByFolder).map(([key, list]) => (
-              <optgroup key={key} label={key === 'none' ? 'No Folder' : (flowFolderNameById[key] || 'Folder')}>
-                {list.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </optgroup>
-            ))}
-          </select>
+            placeholder="Select Flow"
+            options={flows}
+            folders={flowFolders}
+            folderIdOf={(f) => f.folder_id ?? 'none'}
+            getLabel={(f) => f.name}
+            onPick={(f) => { setForm({ ...form, flow_id: String(f.id) }); setFormErrors({ ...formErrors, flow: false }); }}
+            borderColor={formErrors.flow ? 'var(--fail)' : undefined}
+            style={{ flexShrink: 0, width: 200 }}
+          />
           <select
             value={form.environment_id}
             onChange={(e) => { setForm({ ...form, environment_id: e.target.value }); setFormErrors({ ...formErrors, environment: false }); }}

@@ -575,6 +575,30 @@ tbody td:last-child, thead th:last-child { padding-right: 20px; }
 .tree-item.active { background: var(--accent-soft); color: #c7c5ff; font-weight: 600; }
 .tree-item button { padding: 2px 6px; font-size: 11px; }
 
+/* FolderPillPicker / BulkSelectDropdown grouping — folder or environment
+   tabs laid out horizontally, the items under whichever tab is active
+   still stacked vertically as plain .cred-select-item rows below. */
+.folder-tab {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text-muted); font-size: 13px;
+  cursor: pointer; transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.folder-tab:hover { background: var(--surface-3); }
+.folder-tab.active { background: var(--accent-soft); color: #c7c5ff; border-color: var(--accent); font-weight: 600; }
+.folder-pill-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 6px 10px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+
+/* Search box inside a FolderPillPicker popup — filters by folder name or
+   item name at once, replacing the tab+list view with a flat matched list. */
+.cred-select-search {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; margin-bottom: 6px; border-bottom: 1px solid var(--border);
+}
+.cred-select-search input {
+  flex: 1; min-width: 0; border: none; background: transparent; padding: 4px 0;
+  font-size: 13px; color: var(--text); outline: none;
+}
+
 /* ---------- Empty state ---------- */
 
 .empty-state { padding: 24px 12px; text-align: center; color: var(--text-dim); font-size: 13.5px; }

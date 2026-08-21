@@ -12,6 +12,7 @@ import KeyValueEditor, { objectToRows, rowsToObject } from '../components/KeyVal
 import FormDataEditor, { objectToFormRows, formRowsToObject, formRowsToBody, emptyFormRow } from '../components/FormDataEditor.jsx';
 import { TrashIcon, EditIcon, PlayIcon, ChevronIcon, CopyIcon, GripIcon, FolderIcon, XIcon, CheckIcon, DownloadIcon, SendIcon } from '../components/icons.jsx';
 import FolderTree from '../components/FolderTree.jsx';
+import FolderPillPicker from '../components/FolderPillPicker.jsx';
 import AssertionsEditor, { objectToAssertionRows, assertionRowsToArray, emptyAssertionRow } from '../components/AssertionsEditor.jsx';
 import ExtractVariableEditor, { arrayToExtractRows, extractRowsToArray } from '../components/ExtractVariableEditor.jsx';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
@@ -400,6 +401,11 @@ function sortGroupKeys(keys) {
 function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title, groupBy, extraTopAction }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
+  // Which environment tab is active — grouping is now a horizontal tab row
+  // (see the groupBy branch below) instead of one long list with a plain
+  // label per section, but the items under the active tab still stack
+  // vertically same as before.
+  const [activeGroup, setActiveGroup] = useState(null);
   const wrapRef = useRef(null);
   const listRef = useRef(null);
 
@@ -435,6 +441,7 @@ function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title,
     const width = Math.max(rect.width, 320);
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 12));
     setPos({ top: rect.bottom + 4, left, width });
+    setActiveGroup(null); // jatuh balik ke tab pertama tiap dibuka
     setOpen(true);
   };
 
@@ -475,22 +482,30 @@ function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title,
                 if (!groups.has(key)) groups.set(key, []);
                 groups.get(key).push(opt);
               }
-              return sortGroupKeys([...groups.keys()]).map((key, gi) => (
-                <div key={key}>
-                  <div
-                    className="cred-select-group-label"
-                    style={gi > 0 ? { marginTop: 6, borderTop: '1px solid var(--border)', paddingTop: 10 } : undefined}
-                  >
-                    {key}
+              const keys = sortGroupKeys([...groups.keys()]);
+              const currentKey = activeGroup != null && groups.has(activeGroup) ? activeGroup : keys[0];
+              return (
+                <>
+                  <div className="folder-pill-tabs">
+                    {keys.map((key) => (
+                      <button
+                        type="button"
+                        key={key}
+                        className={`folder-tab${key === currentKey ? ' active' : ''}`}
+                        onClick={() => setActiveGroup(key)}
+                      >
+                        {key}
+                      </button>
+                    ))}
                   </div>
-                  {groups.get(key).map((opt, i) => (
+                  {groups.get(currentKey).map((opt, i) => (
                     <button type="button" key={i} className="cred-select-item" onClick={() => { setOpen(false); onPick(opt); }}>
                       <span className="cred-select-check"><CheckIcon style={{ visibility: 'hidden' }} /></span>
                       {renderOption(opt)}
                     </button>
                   ))}
-                </div>
-              ));
+                </>
+              );
             })()
           ) : (
             options.map((opt, i) => (
@@ -1632,14 +1647,6 @@ export default function Flows() {
   // a pasted curl command.
   const canSaveFlow = !!(editingFlow && editingFlow.steps.length > 0 && editingFlow.steps.every((s) => s.endpoint_id || s.url_template));
 
-  const folderNameById = Object.fromEntries(endpointFolders.map((f) => [f.id, f.name]));
-  const endpointsByFolder = endpoints.reduce((acc, ep) => {
-    const key = ep.folder_id ?? 'none';
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(ep);
-    return acc;
-  }, {});
-
   return (
     <div>
       <div className="page-header">
@@ -2133,31 +2140,19 @@ export default function Flows() {
                     </div>
 
                     <div className="toolbar" style={{ marginBottom: 8, flexWrap: 'nowrap' }}>
-                      <select
+                      <FolderPillPicker
                         value={step.endpoint_id}
-                        onChange={(e) => {
-                          if (e.target.value === '__paste_curl__') {
-                            startCurlPaste(idx);
-                            return;
-                          }
-                          handleSelectEndpoint(idx, e.target.value);
-                        }}
-                        style={{
-                          flex: 1,
-                          minWidth: 0,
-                          borderColor: stepErrors[idx]?.endpoint
-                            ? 'var(--fail)'
-                            : (!step.endpoint_id && !step.url_template ? 'var(--accent)' : undefined),
-                        }}
-                      >
-                        <option value="__paste_curl__">Paste curl...</option>
-                        <option value="">Select endpoint</option>
-                        {Object.entries(endpointsByFolder).map(([key, list]) => (
-                          <optgroup key={key} label={key === 'none' ? 'No Folder' : (folderNameById[key] || 'Folder')}>
-                            {list.map((ep) => <option key={ep.id} value={ep.id}>{ep.name}</option>)}
-                          </optgroup>
-                        ))}
-                      </select>
+                        placeholder="Select endpoint"
+                        options={endpoints}
+                        folders={endpointFolders}
+                        folderIdOf={(ep) => ep.folder_id ?? 'none'}
+                        getLabel={(ep) => ep.name}
+                        onPick={(ep) => handleSelectEndpoint(idx, String(ep.id))}
+                        extraTopAction={{ label: 'Paste curl...', onClick: () => startCurlPaste(idx) }}
+                        borderColor={stepErrors[idx]?.endpoint
+                          ? 'var(--fail)'
+                          : (!step.endpoint_id && !step.url_template ? 'var(--accent)' : undefined)}
+                      />
                       {(step.endpoint_id || step.url_template) && (
                         <select
                           value={step.method}
