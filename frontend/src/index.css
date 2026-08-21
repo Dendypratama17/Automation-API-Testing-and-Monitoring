@@ -151,11 +151,14 @@ a { color: inherit; }
    tertentu (mis. Repeat count di Flow List) — cukup bisa ketik angkanya
    langsung, tidak perlu tombol +/-. */
 input.no-spinner::-webkit-outer-spin-button,
-input.no-spinner::-webkit-inner-spin-button {
+input.no-spinner::-webkit-inner-spin-button,
+input.step-flag-chip-input::-webkit-outer-spin-button,
+input.step-flag-chip-input::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
-input.no-spinner {
+input.no-spinner,
+input.step-flag-chip-input {
   -moz-appearance: textfield;
 }
 
