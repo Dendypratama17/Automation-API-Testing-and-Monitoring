@@ -86,6 +86,10 @@ export default function Endpoints() {
   const [stressRunning, setStressRunning] = useState(false);
   const [stressResult, setStressResult] = useState(null);
   const [stressError, setStressError] = useState('');
+  // Only true once the user has actually tapped Run at least once — red
+  // borders on Environment/Credential should call out what blocked that
+  // attempt, not greet an untouched form as already invalid.
+  const [stressAttemptedRun, setStressAttemptedRun] = useState(false);
   // Snapshotted at the moment a run actually finishes — not read live off
   // stressForm at export time, since the form's env/credential/counts could
   // have been changed since (about to run a new test) while the last
@@ -160,6 +164,7 @@ export default function Endpoints() {
     setStressResult(null);
     setStressRanWith(null);
     setStressError('');
+    setStressAttemptedRun(false);
   };
 
   const closeStressTest = () => {
@@ -188,6 +193,7 @@ export default function Endpoints() {
 
   const handleRunStressTest = async (confirmProd = false) => {
     setStressError('');
+    setStressAttemptedRun(true);
     const total = Number(stressForm.total_requests);
     const conc = Number(stressForm.concurrency);
     if (!stressForm.environment_id) { setStressError('Pick an environment first.'); return; }
@@ -571,7 +577,7 @@ export default function Endpoints() {
                 <div>
                   <span className="field-label">Environment</span>
                   <select
-                    className={!stressForm.environment_id ? 'field-invalid' : ''}
+                    className={stressAttemptedRun && !stressForm.environment_id ? 'field-invalid' : ''}
                     value={stressForm.environment_id}
                     onChange={(e) => setStressForm({ ...stressForm, environment_id: e.target.value })}
                     disabled={stressRunning}
@@ -583,7 +589,7 @@ export default function Endpoints() {
                 <div>
                   <span className="field-label">Credential</span>
                   <select
-                    className={!stressForm.auth_credential_id ? 'field-invalid' : ''}
+                    className={stressAttemptedRun && !stressForm.auth_credential_id ? 'field-invalid' : ''}
                     value={stressForm.auth_credential_id}
                     onChange={(e) => setStressForm({ ...stressForm, auth_credential_id: e.target.value })}
                     disabled={stressRunning}
