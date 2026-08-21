@@ -67,8 +67,13 @@ async function runFlowAndPersist(flow, steps, environment, triggeredBy, schedule
         // Authorization it already had configured (surfacing as that
         // step's own real HTTP error) instead of aborting the whole run.
         try {
-          const token = await getWebLoginToken({ ...row, password: decrypt(row.password) }, getAbortSignal(runToken));
-          authCredentials[row.id] = { ...row, token };
+          const decryptedPassword = decrypt(row.password);
+          const token = await getWebLoginToken({ ...row, password: decryptedPassword }, getAbortSignal(runToken));
+          // Keeps the decrypted password around (not just the token) so a
+          // step that gets a 401 mid-run can force a fresh login itself
+          // (see flowExecutor.js's runStep) — the cached token's predicted
+          // expiry can be wrong if the server revokes it earlier.
+          authCredentials[row.id] = { ...row, password: decryptedPassword, token };
         } catch (err) {
           console.error(`[flowRunner] Web Login credential "${row.name}" failed: ${err.message}`);
         }

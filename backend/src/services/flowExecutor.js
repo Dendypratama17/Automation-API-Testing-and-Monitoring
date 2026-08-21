@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const { generateSchema, diffSchema } = require('./schemaTool');
 const { isCancelled, getAbortSignal } = require('./runCancellation');
 const { pushProgress } = require('./runProgress');
+const { getWebLoginToken, invalidateTokenCache } = require('./webLogin');
 
 // SKIPPED ranks below PASS on purpose — a step deliberately not run (its
 // run condition wasn't met) shouldn't drag an otherwise-passing flow's
@@ -469,7 +470,7 @@ async function runStep(step, baseVariables, flow, authCredentials, previousSchem
     // instead of crashing the whole flow run.
     const bodyWithFiles = resolvedBody != null ? await resolveFileUrls(resolvedBody) : resolvedBody;
     const body = buildRequestBody(bodyWithFiles, step.body_type, headers);
-    const response = await requestWithRetry({
+    let response = await requestWithRetry({
       method: step.method,
       url,
       headers,
@@ -478,6 +479,37 @@ async function runStep(step, baseVariables, flow, authCredentials, previousSchem
       timeout: 15000,
       signal: getAbortSignal(runToken),
     }, step.name);
+
+    // A cached Web Login token can get revoked by the server earlier than
+    // its predicted expiry (see webLogin.js's expiresAt/REFRESH_MARGIN_MS)
+    // — without this, every later step/run reusing that same credential
+    // would keep failing with 401 until the cache's own clock catches up.
+    // Force a fresh login and retry exactly once instead; a 401 that
+    // survives the retry (wrong credentials, endpoint genuinely requires
+    // something else) is left as a real failure, not retried again.
+    const credForAuth = step.auth_credential_id ? authCredentials[step.auth_credential_id] : null;
+    if (response.status === 401 && credForAuth?.type === 'web_login') {
+      try {
+        invalidateTokenCache(credForAuth.id);
+        const freshToken = await getWebLoginToken(credForAuth, getAbortSignal(runToken));
+        for (const key of Object.keys(headers)) {
+          if (key.toLowerCase() === 'authorization') delete headers[key];
+        }
+        headers['Authorization'] = `Bearer ${freshToken}`;
+        response = await requestWithRetry({
+          method: step.method,
+          url,
+          headers,
+          data: body,
+          validateStatus: () => true,
+          timeout: 15000,
+          signal: getAbortSignal(runToken),
+        }, step.name);
+      } catch (reloginErr) {
+        console.error(`[flowExecutor] Re-login after 401 for "${credForAuth.name}" failed: ${reloginErr.message}`);
+      }
+    }
+
     const responseTimeMs = Date.now() - start;
 
     const newSchema = generateSchema(response.data);

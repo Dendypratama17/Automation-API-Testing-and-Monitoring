@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { decrypt } = require('../utils/crypto');
-const { getWebLoginToken } = require('./webLogin');
+const { getWebLoginToken, invalidateTokenCache } = require('./webLogin');
 const { resolveDeep, activeHeaders, requestWithRetry, describeConnectionError, buildRequestBody, formatTimestampWIB } = require('./flowExecutor');
 const { isCancelled, getAbortSignal } = require('./runCancellation');
 
@@ -11,21 +11,21 @@ const { isCancelled, getAbortSignal } = require('./runCancellation');
 const MAX_TOTAL_REQUESTS = 500;
 const MAX_CONCURRENCY = 50;
 
-// Resolved once up front (not per-request) — every request in one stress
-// test run authenticates as the same account, same as picking one credential
-// for a Flow step. A fresh Web Login token is fetched (or reused from cache)
-// exactly like a normal flow run would.
+// `credential` is already decrypted by the time this is called (see
+// runStressTest) — cheap to call per-request despite the name suggesting
+// otherwise, since getWebLoginToken caches internally; only the very first
+// call across the whole run actually pays for a real login.
 async function resolveAuthHeader(credential, runToken) {
   if (!credential) return null;
   if (credential.type === 'web_login') {
-    const token = await getWebLoginToken({ ...credential, password: decrypt(credential.password) }, getAbortSignal(runToken));
+    const token = await getWebLoginToken(credential, getAbortSignal(runToken));
     return `Bearer ${token}`;
   }
-  const basic = Buffer.from(`${credential.username}:${decrypt(credential.password)}`).toString('base64');
+  const basic = Buffer.from(`${credential.username}:${credential.password}`).toString('base64');
   return `Basic ${basic}`;
 }
 
-async function sendOneRequest(endpoint, environment, authHeaderValue, runToken) {
+async function sendOneRequest(endpoint, environment, credential, runToken) {
   const variables = {
     base_url: environment.base_url,
     ...(environment.variables || {}),
@@ -35,6 +35,7 @@ async function sendOneRequest(endpoint, environment, authHeaderValue, runToken) 
   };
   const url = resolveDeep(endpoint.path_template, variables);
   const headers = resolveDeep(activeHeaders(endpoint.headers), variables);
+  const authHeaderValue = await resolveAuthHeader(credential, runToken);
   if (authHeaderValue) {
     // Same dedup as flowExecutor's credential injection — an endpoint's own
     // headers might already carry a raw (possibly stale) Authorization value
@@ -49,7 +50,7 @@ async function sendOneRequest(endpoint, environment, authHeaderValue, runToken) 
 
   const start = Date.now();
   try {
-    const response = await requestWithRetry({
+    let response = await requestWithRetry({
       method: endpoint.method,
       url,
       headers,
@@ -58,6 +59,34 @@ async function sendOneRequest(endpoint, environment, authHeaderValue, runToken) 
       timeout: 15000,
       signal: getAbortSignal(runToken),
     }, endpoint.name);
+
+    // Same reasoning as flowExecutor.js's runStep: a cached Web Login token
+    // can be revoked by the server earlier than its predicted expiry — force
+    // a fresh login and retry exactly once instead of letting every
+    // remaining request in this run fail with 401 until the cache's own
+    // clock catches up.
+    if (response.status === 401 && credential?.type === 'web_login') {
+      try {
+        invalidateTokenCache(credential.id);
+        const freshHeader = await resolveAuthHeader(credential, runToken);
+        for (const key of Object.keys(headers)) {
+          if (key.toLowerCase() === 'authorization') delete headers[key];
+        }
+        if (freshHeader) headers['Authorization'] = freshHeader;
+        response = await requestWithRetry({
+          method: endpoint.method,
+          url,
+          headers,
+          data: body,
+          validateStatus: () => true,
+          timeout: 15000,
+          signal: getAbortSignal(runToken),
+        }, endpoint.name);
+      } catch (reloginErr) {
+        console.error(`[stressTestRunner] Re-login after 401 failed: ${reloginErr.message}`);
+      }
+    }
+
     return { ok: response.status < 400, status: response.status, ms: Date.now() - start };
   } catch (err) {
     return { ok: false, status: null, ms: Date.now() - start, error: describeConnectionError(err) };
@@ -111,10 +140,16 @@ function summarize(results, wallClockMs) {
 // is always false, so omitting runToken just makes this uncancellable, same
 // as before this existed.
 async function runStressTest({ endpoint, environment, credential, totalRequests, concurrency, runToken = null }) {
-  // Resolved (and, for Web Login, possibly a real ~15-20s sign-in) BEFORE
-  // the clock below starts — that's setup, not part of the endpoint's own
-  // throughput.
-  const authHeaderValue = await resolveAuthHeader(credential, runToken);
+  // Decrypted once up front — sendOneRequest resolves (and caches) its own
+  // auth header per request instead of reusing one static value computed
+  // here, so a 401 partway through the run can force a fresh login without
+  // needing anything outside sendOneRequest itself.
+  const resolvedCredential = credential ? { ...credential, password: decrypt(credential.password) } : null;
+  // Priming the cache now — possibly a real ~15-20s Web Login sign-in —
+  // BEFORE the clock below starts, so that setup time isn't counted as
+  // part of the endpoint's own throughput. Every request's own
+  // resolveAuthHeader call inside sendOneRequest just hits this cache.
+  await resolveAuthHeader(resolvedCredential, runToken);
   const results = [];
   let started = 0;
 
@@ -122,7 +157,7 @@ async function runStressTest({ endpoint, environment, credential, totalRequests,
     while (started < totalRequests) {
       if (isCancelled(runToken)) break;
       started += 1;
-      results.push(await sendOneRequest(endpoint, environment, authHeaderValue, runToken));
+      results.push(await sendOneRequest(endpoint, environment, resolvedCredential, runToken));
     }
   };
   const wallClockStart = Date.now();
