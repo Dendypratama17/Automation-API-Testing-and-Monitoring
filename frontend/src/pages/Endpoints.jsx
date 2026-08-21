@@ -571,6 +571,7 @@ export default function Endpoints() {
                 <div>
                   <span className="field-label">Environment</span>
                   <select
+                    className={!stressForm.environment_id ? 'field-invalid' : ''}
                     value={stressForm.environment_id}
                     onChange={(e) => setStressForm({ ...stressForm, environment_id: e.target.value })}
                     disabled={stressRunning}
@@ -582,6 +583,7 @@ export default function Endpoints() {
                 <div>
                   <span className="field-label">Credential</span>
                   <select
+                    className={!stressForm.auth_credential_id ? 'field-invalid' : ''}
                     value={stressForm.auth_credential_id}
                     onChange={(e) => setStressForm({ ...stressForm, auth_credential_id: e.target.value })}
                     disabled={stressRunning}
@@ -623,7 +625,7 @@ export default function Endpoints() {
 
               <div className="toolbar" style={{ marginTop: 20 }}>
                 <button
-                  className="btn-primary"
+                  className={`btn-success${!stressRunning && stressForm.environment_id && stressForm.auth_credential_id ? ' btn-ready' : ''}`}
                   onClick={() => handleRunStressTest()}
                   disabled={stressRunning}
                   style={{ display: 'flex', alignItems: 'center', gap: 8 }}
