@@ -26,6 +26,7 @@ import {
   exportRunResultToPdf, getRunResultPdfBase64, exportBatchRunResultToPdf, getBatchRunResultPdfBase64,
   exportRepeatBatchRunResultToPdf, getRepeatBatchRunResultPdfBase64,
 } from '../utils/exportRunResultPdf.js';
+import { exportRepeatSummaryToPdf, getRepeatSummaryPdfBase64 } from '../utils/exportRepeatSummaryPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
 import { loadSelectedFolder, saveSelectedFolder, hasStoredFolder } from '../utils/persistedFolder.js';
 import ScrollToTopButton from '../components/ScrollToTopButton.jsx';
@@ -1486,16 +1487,25 @@ export default function Flows() {
     }
   };
 
+  // Two separate PDFs, both downloaded/sent together — the detailed report
+  // (every repeat's full flow/step breakdown, from exportRunResultPdf.js)
+  // plus this visual summary (pass-rate chart + a short written explanation
+  // per flow, from exportRepeatSummaryPdf.js) for a quick read without
+  // paging through every repeat's raw steps.
+  const handleDownloadRepeatResultsPdfs = () => {
+    exportRepeatBatchRunResultToPdf(repeatResults, runningRepeatCount);
+    exportRepeatSummaryToPdf(repeatResults, runningRepeatCount);
+  };
+
   const handleShareRepeatResultsToTelegram = async () => {
     setSharingRepeatResults(true);
     try {
-      const { base64, filename } = getRepeatBatchRunResultPdfBase64(repeatResults, runningRepeatCount);
       const passCount = repeatResults.filter((rr) => rr.result && !rr.error && rr.result.results.every((r) => !r.error && r.flow_run?.status === 'PASS')).length;
-      await sendDocumentToTelegram({
-        filename,
-        caption: `Repeated Batch Run: ${passCount}/${repeatResults.length} of ${runningRepeatCount}x passed`,
-        fileBase64: base64,
-      });
+      const caption = `Repeated Batch Run: ${passCount}/${repeatResults.length} of ${runningRepeatCount}x passed`;
+      const detailed = getRepeatBatchRunResultPdfBase64(repeatResults, runningRepeatCount);
+      const summary = getRepeatSummaryPdfBase64(repeatResults, runningRepeatCount);
+      await sendDocumentToTelegram({ filename: summary.filename, caption, fileBase64: summary.base64 });
+      await sendDocumentToTelegram({ filename: detailed.filename, caption, fileBase64: detailed.base64 });
       showToast('Sent to Telegram.');
     } catch (err) {
       showToast(err.response?.data?.error || err.message, 'error');
@@ -2518,7 +2528,7 @@ export default function Flows() {
                     label="Export"
                     title="Download this repeated batch run result as a PDF, or share it straight to Telegram"
                     items={[
-                      { label: 'Download PDF', icon: <DownloadIcon />, onClick: () => exportRepeatBatchRunResultToPdf(repeatResults, runningRepeatCount) },
+                      { label: 'Download PDF', icon: <DownloadIcon />, onClick: handleDownloadRepeatResultsPdfs },
                       { label: sharingRepeatResults ? 'Sharing...' : 'Share to Telegram', icon: <SendIcon />, onClick: handleShareRepeatResultsToTelegram, disabled: sharingRepeatResults },
                     ]}
                   />
