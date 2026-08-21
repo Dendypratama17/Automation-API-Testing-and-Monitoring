@@ -1495,14 +1495,16 @@ export default function Flows() {
     }
   };
 
-  // Two separate PDFs, both downloaded/sent together — the detailed report
-  // (every repeat's full flow/step breakdown, from exportRunResultPdf.js)
-  // plus this visual summary (pass-rate chart + a short written explanation
-  // per flow, from exportRepeatSummaryPdf.js) for a quick read without
-  // paging through every repeat's raw steps.
+  // Two separate PDFs, both downloaded together — the visual summary
+  // (pass-rate chart + a short written explanation per flow, from
+  // exportRepeatSummaryPdf.js) plus the detailed report (every repeat's
+  // full flow/step breakdown, from exportRunResultPdf.js). Triggering two
+  // doc.save() calls back-to-back in the same tick gets the second one
+  // silently blocked by the browser's "multiple automatic downloads"
+  // guard — a small delay between them is the standard workaround.
   const handleDownloadRepeatResultsPdfs = () => {
-    exportRepeatBatchRunResultToPdf(repeatResults, runningRepeatCount);
     exportRepeatSummaryToPdf(repeatResults, runningRepeatCount);
+    setTimeout(() => exportRepeatBatchRunResultToPdf(repeatResults, runningRepeatCount), 400);
   };
 
   const handleShareRepeatResultsToTelegram = async () => {
