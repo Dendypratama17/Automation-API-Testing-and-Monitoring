@@ -26,7 +26,12 @@ function parseCurl(curlString) {
   const headers = {};
   let body = null;
   let isMultipart = false;
-  const formFields = {};
+  // An array of [key, value] tuples, not a {key: value} object — a real
+  // multipart body can carry the same field name more than once (e.g. two
+  // separate "documents" file parts for a 2-document upload), which a
+  // plain object can't hold (the second would silently overwrite the
+  // first).
+  const formFields = [];
 
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
@@ -59,7 +64,7 @@ function parseCurl(curlString) {
         const isFile = val.startsWith('@');
         if (isFile) val = val.slice(1);
         val = val.replace(/^"|"$/g, '');
-        formFields[key] = isFile ? `@file:${val}` : val;
+        formFields.push([key, isFile ? `@file:${val}` : val]);
       }
       if (!method) method = 'POST';
     } else if (t === '-u' || t === '--user') {
@@ -107,18 +112,18 @@ function parseCurl(curlString) {
   return { method: method || 'GET', url, headers, body, isMultipart };
 }
 
-// Splits a raw multipart/form-data body on its boundary into a flat
-// {fieldName: value} map — the same object shape -F/--form already
-// produces above, including the same limitation (a field name repeated
-// across parts, e.g. multiple files under "documents", keeps only the
-// last one; there's no array-valued form field in this model yet).
+// Splits a raw multipart/form-data body on its boundary into an array of
+// [fieldName, value] tuples — same shape -F/--form builds above, and for
+// the same reason: a field name (e.g. "documents") legitimately repeats
+// once per file in a multi-file upload, which a plain object can't hold
+// without one occurrence silently overwriting another.
 function parseMultipartBody(raw, boundary) {
   const marker = `--${boundary}`;
   if (!raw.includes(marker)) return null;
   const parts = raw.split(marker).slice(1, -1);
   if (parts.length === 0) return null;
 
-  const fields = {};
+  const fields = [];
   for (let part of parts) {
     part = part.replace(/^\r\n/, '').replace(/\r\n$/, '');
     const headerEnd = part.indexOf('\r\n\r\n');
@@ -128,9 +133,9 @@ function parseMultipartBody(raw, boundary) {
     const nameMatch = headerBlock.match(/name="([^"]*)"/i);
     if (!nameMatch) continue;
     const filenameMatch = headerBlock.match(/filename="([^"]*)"/i);
-    fields[nameMatch[1]] = filenameMatch ? `@file:${filenameMatch[1]}` : value;
+    fields.push([nameMatch[1], filenameMatch ? `@file:${filenameMatch[1]}` : value]);
   }
-  return Object.keys(fields).length ? fields : null;
+  return fields.length ? fields : null;
 }
 
 // Basic shell-like tokenizer respecting single/double quotes

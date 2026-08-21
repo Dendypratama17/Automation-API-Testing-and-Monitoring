@@ -9,7 +9,7 @@ import {
 import JsonBlock from '../components/JsonBlock.jsx';
 import JsonPasteEditor from '../components/JsonPasteEditor.jsx';
 import KeyValueEditor, { objectToRows, rowsToObject } from '../components/KeyValueEditor.jsx';
-import FormDataEditor, { objectToFormRows, formRowsToObject, emptyFormRow } from '../components/FormDataEditor.jsx';
+import FormDataEditor, { objectToFormRows, formRowsToObject, formRowsToBody, emptyFormRow } from '../components/FormDataEditor.jsx';
 import { TrashIcon, EditIcon, PlayIcon, ChevronIcon, CopyIcon, GripIcon, FolderIcon, XIcon, CheckIcon, DownloadIcon, SendIcon } from '../components/icons.jsx';
 import FolderTree from '../components/FolderTree.jsx';
 import AssertionsEditor, { objectToAssertionRows, assertionRowsToArray, emptyAssertionRow } from '../components/AssertionsEditor.jsx';
@@ -310,7 +310,7 @@ function stepToPayload(step, endpoints) {
   let body_template = null;
   if (BODY_METHODS.includes(step.method)) {
     if (step.bodyType === 'form-data') {
-      body_template = formRowsToObject(step.bodyRows);
+      body_template = formRowsToBody(step.bodyRows);
     } else {
       try { body_template = step.bodyText.trim() ? JSON.parse(step.bodyText) : null; }
       catch { throw new Error(`Body in step "${step.name}" is not valid JSON`); }

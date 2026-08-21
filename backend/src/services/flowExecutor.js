@@ -188,24 +188,33 @@ function collectDeepValues(node, key, out = []) {
 }
 
 /**
- * form-data bodies are stored as a flat {key: value} object (same shape as
- * headers), except file fields which carry { __file__: true, name, mimeType,
- * data (base64) } instead of a plain string.
+ * form-data bodies come in two shapes: a flat {key: value} object (the
+ * original, still what every body_template saved before duplicate field
+ * names were supported looks like), or an array of [key, value] tuples (the
+ * current shape FormDataEditor saves) — the array form exists because a
+ * plain object literally can't hold two entries under the same key (e.g. a
+ * multipart envelope upload with two separate "documents" file parts, one
+ * per document — the second would just silently overwrite the first).
+ * File fields carry { __file__: true, name, mimeType, data (base64) }
+ * instead of a plain string, whichever shape holds them.
  *
  * - No file fields: axios would otherwise JSON.stringify a plain object
  *   regardless of Content-Type, so encode it ourselves as
  *   application/x-www-form-urlencoded.
  * - Any file field: build a real multipart/form-data body (native FormData +
  *   Blob, available in Node 18+) so uploads are actually replayed as files,
- *   not just a JSON string of the path.
+ *   not just a JSON string of the path. FormData.append naturally supports
+ *   calling it more than once with the same key, so a repeated key in the
+ *   tuple array becomes two real parts, exactly like a real browser upload.
  */
 function buildRequestBody(body, bodyType, headers) {
-  if (bodyType === 'form-data' && body && typeof body === 'object' && !Array.isArray(body)) {
-    const hasFile = Object.values(body).some((v) => v && typeof v === 'object' && v.__file__);
+  if (bodyType === 'form-data' && body && typeof body === 'object') {
+    const entries = Array.isArray(body) ? body : Object.entries(body);
+    const hasFile = entries.some(([, v]) => v && typeof v === 'object' && v.__file__);
 
     if (hasFile) {
       const form = new FormData();
-      for (const [key, value] of Object.entries(body)) {
+      for (const [key, value] of entries) {
         if (value && typeof value === 'object' && value.__file__) {
           const buffer = Buffer.from(value.data || '', 'base64');
           const blob = new Blob([buffer], { type: value.mimeType || 'application/octet-stream' });
@@ -222,7 +231,7 @@ function buildRequestBody(body, bodyType, headers) {
     }
 
     const params = new URLSearchParams();
-    for (const [key, value] of Object.entries(body)) params.append(key, value == null ? '' : String(value));
+    for (const [key, value] of entries) params.append(key, value == null ? '' : String(value));
     if (!Object.keys(headers).some((h) => h.toLowerCase() === 'content-type')) {
       headers['Content-Type'] = 'application/x-www-form-urlencoded';
     }

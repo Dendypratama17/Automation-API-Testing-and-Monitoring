@@ -11,12 +11,17 @@ const emptyFormRow = () => ({ key: '', type: 'text', value: '', enabled: true, f
 // it. Treat it as a file field that needs re-attaching, not a real value.
 const FILE_PLACEHOLDER_RE = /^@file:(.*)$/;
 
-export function objectToFormRows(obj) {
-  // A plain string (e.g. a body that failed to parse into fields) is
-  // iterable by Object.entries just like a real object — one entry per
-  // character, keyed "0", "1", "2"... — so it must be rejected here rather
-  // than falling through and rendering as a wall of single-character rows.
-  const entries = obj && typeof obj === 'object' ? Object.entries(obj) : [];
+export function objectToFormRows(body) {
+  // Two shapes reach here: the current array of [key, value] tuples (what
+  // gets saved now — see formRowsToBody — and what the curl importer
+  // produces for a multipart body), and the legacy flat {key: value} object
+  // every body_template saved before duplicate field names were supported
+  // still has. A plain STRING (e.g. a body that failed to parse into
+  // fields) is iterable by Object.entries just like a real object — one
+  // entry per character, keyed "0", "1", "2"... — so it must be rejected
+  // here rather than falling through and rendering as a wall of
+  // single-character rows.
+  const entries = Array.isArray(body) ? body : (body && typeof body === 'object' ? Object.entries(body) : []);
   if (!entries.length) return [emptyFormRow()];
   return entries.map(([key, value]) => {
     if (value && typeof value === 'object' && value.__file_url__) {
@@ -40,6 +45,11 @@ export function objectToFormRows(obj) {
   });
 }
 
+// Used only for read-only JSON previews (the JSON tab, curl-export text) —
+// collapsing two rows that share a key into one object slot is an
+// acceptable simplification there, since JSON itself can't represent
+// duplicate keys either. The actual saved/sent body must go through
+// formRowsToBody below instead, which doesn't lose that second row.
 export function formRowsToObject(rows) {
   const obj = {};
   for (const row of rows) {
@@ -53,6 +63,27 @@ export function formRowsToObject(rows) {
     }
   }
   return obj;
+}
+
+// The shape that actually gets saved as body_template: an array of
+// [key, value] tuples instead of a {key: value} object, so two rows
+// sharing the same key (e.g. two "documents" file parts in one multi-file
+// upload) both survive instead of the second silently overwriting the
+// first in an object slot.
+export function formRowsToBody(rows) {
+  const entries = [];
+  for (const row of rows) {
+    if (row.enabled === false || !row.key.trim()) continue;
+    const key = row.key.trim();
+    if (row.type === 'file' && row.fileMeta?.__url__) {
+      entries.push([key, { __file_url__: true, url: row.fileMeta.url, name: key }]);
+    } else if (row.type === 'file' && row.fileMeta) {
+      entries.push([key, { __file__: true, name: row.fileMeta.name, mimeType: row.fileMeta.mimeType, data: row.fileMeta.data }]);
+    } else {
+      entries.push([key, row.value]);
+    }
+  }
+  return entries;
 }
 
 function readFileAsBase64(file) {

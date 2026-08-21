@@ -6,7 +6,7 @@ import {
 } from '../api/client';
 import { exportStressTestToPdf, getStressTestPdfBase64 } from '../utils/exportStressTestPdf.js';
 import KeyValueEditor, { objectToRows, rowsToObject } from '../components/KeyValueEditor.jsx';
-import FormDataEditor, { objectToFormRows, formRowsToObject } from '../components/FormDataEditor.jsx';
+import FormDataEditor, { objectToFormRows, formRowsToObject, formRowsToBody } from '../components/FormDataEditor.jsx';
 import Environments from './Environments.jsx';
 import Authorization from './Authorization.jsx';
 import DefaultHeaders from './DefaultHeaders.jsx';
@@ -339,7 +339,7 @@ export default function Endpoints() {
       const headers = rowsToObject(editing.headersRows);
       let body_template;
       if (editing.bodyType === 'form-data') {
-        body_template = formRowsToObject(editing.bodyRows);
+        body_template = formRowsToBody(editing.bodyRows);
       } else {
         body_template = editing.bodyText.trim() ? JSON.parse(editing.bodyText) : {};
       }
