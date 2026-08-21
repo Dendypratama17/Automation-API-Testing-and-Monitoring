@@ -84,9 +84,53 @@ function parseCurl(curlString) {
   }
 
   if (isMultipart) body = formFields;
+
+  // -F/--form builds its own formFields directly above, but a curl copied
+  // straight from a browser's devtools instead carries the WHOLE multipart
+  // body as one --data-raw string (boundary and all) — isMultipart above
+  // only ever gets set by an actual -F flag, so that shape falls through
+  // untouched unless it's caught here too, from the Content-Type header.
+  if (!isMultipart && typeof body === 'string') {
+    const contentType = Object.entries(headers).find(([k]) => k.toLowerCase() === 'content-type')?.[1] || '';
+    const boundaryMatch = contentType.match(/boundary=("?)([^;"]+)\1/i);
+    if (boundaryMatch) {
+      const parsedFields = parseMultipartBody(body, boundaryMatch[2]);
+      if (parsedFields) {
+        isMultipart = true;
+        body = parsedFields;
+      }
+    }
+  }
+
   if (url && !/^https?:\/\//.test(url)) url = `http://${url}`;
 
   return { method: method || 'GET', url, headers, body, isMultipart };
+}
+
+// Splits a raw multipart/form-data body on its boundary into a flat
+// {fieldName: value} map — the same object shape -F/--form already
+// produces above, including the same limitation (a field name repeated
+// across parts, e.g. multiple files under "documents", keeps only the
+// last one; there's no array-valued form field in this model yet).
+function parseMultipartBody(raw, boundary) {
+  const marker = `--${boundary}`;
+  if (!raw.includes(marker)) return null;
+  const parts = raw.split(marker).slice(1, -1);
+  if (parts.length === 0) return null;
+
+  const fields = {};
+  for (let part of parts) {
+    part = part.replace(/^\r\n/, '').replace(/\r\n$/, '');
+    const headerEnd = part.indexOf('\r\n\r\n');
+    if (headerEnd === -1) continue;
+    const headerBlock = part.slice(0, headerEnd);
+    const value = part.slice(headerEnd + 4);
+    const nameMatch = headerBlock.match(/name="([^"]*)"/i);
+    if (!nameMatch) continue;
+    const filenameMatch = headerBlock.match(/filename="([^"]*)"/i);
+    fields[nameMatch[1]] = filenameMatch ? `@file:${filenameMatch[1]}` : value;
+  }
+  return Object.keys(fields).length ? fields : null;
 }
 
 // Basic shell-like tokenizer respecting single/double quotes
@@ -96,8 +140,34 @@ function tokenize(str) {
   let inSingle = false;
   let inDouble = false;
 
+  // Maps a backslash-escape's letter to the real character it stands for,
+  // used only inside $'...' below — unlike a plain '...' string (fully
+  // literal) or "..." string (only a few escapes), ANSI-C quoting is where
+  // a browser's "Copy as cURL" puts a multipart body's real \r\n line
+  // breaks, so these must become actual CR/LF bytes for the boundary
+  // splitter below to find them.
+  const ANSI_C_ESCAPES = { r: '\r', n: '\n', t: '\t', '\\': '\\', "'": "'", '"': '"', '0': '\0' };
+
   for (let i = 0; i < str.length; i++) {
     const c = str[i];
+    // $'...' (bash ANSI-C quoting) — not just a plain '...' string, so it
+    // can't be left to the ordinary single-quote toggle below (that would
+    // leave the leading `$` stuck onto the next token, and never unescape
+    // the \r\n inside). Consumed as its own self-contained unit here.
+    if (c === '$' && str[i + 1] === "'" && !inSingle && !inDouble) {
+      i += 2;
+      while (i < str.length && str[i] !== "'") {
+        if (str[i] === '\\' && i + 1 < str.length) {
+          const esc = ANSI_C_ESCAPES[str[i + 1]];
+          current += esc !== undefined ? esc : str[i + 1];
+          i += 2;
+        } else {
+          current += str[i];
+          i += 1;
+        }
+      }
+      continue;
+    }
     // Backslash-escape (outside single quotes, where POSIX shells treat
     // backslash as fully literal) — consumes the next character as-is.
     // Without this, `-d "{\"a\":1}"` (a common "copy as cURL" shape from

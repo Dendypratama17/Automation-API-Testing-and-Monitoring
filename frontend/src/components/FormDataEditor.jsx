@@ -11,7 +11,11 @@ const emptyFormRow = () => ({ key: '', type: 'text', value: '', enabled: true, f
 const FILE_PLACEHOLDER_RE = /^@file:(.*)$/;
 
 export function objectToFormRows(obj) {
-  const entries = Object.entries(obj || {});
+  // A plain string (e.g. a body that failed to parse into fields) is
+  // iterable by Object.entries just like a real object — one entry per
+  // character, keyed "0", "1", "2"... — so it must be rejected here rather
+  // than falling through and rendering as a wall of single-character rows.
+  const entries = obj && typeof obj === 'object' ? Object.entries(obj) : [];
   if (!entries.length) return [emptyFormRow()];
   return entries.map(([key, value]) => {
     if (value && typeof value === 'object' && value.__file_url__) {
