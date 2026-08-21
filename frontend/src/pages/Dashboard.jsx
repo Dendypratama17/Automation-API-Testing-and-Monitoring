@@ -164,7 +164,7 @@ function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, runInfo
   return (
     <div className="card" ref={detailRef}>
       <div className="card-row">
-        <h4 style={{ margin: 0 }}>{detail.endpoint.method} {detail.endpoint.name}</h4>
+        <h4 style={{ margin: 0 }}>{selectedRow.request_method} {selectedRow.endpoint_name ?? detail.endpoint.name}</h4>
         <div className="toolbar">
           <OptionsMenu
             label="Export"
