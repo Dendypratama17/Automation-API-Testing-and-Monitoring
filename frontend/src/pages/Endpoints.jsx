@@ -86,6 +86,10 @@ export default function Endpoints() {
   const [stressRunning, setStressRunning] = useState(false);
   const [stressResult, setStressResult] = useState(null);
   const [stressError, setStressError] = useState('');
+  // Only true once the user has actually tapped Run at least once — the red
+  // border on Environment/Credential below is what tells them what's
+  // missing, so an untouched form shouldn't greet them as already invalid.
+  const [stressAttemptedRun, setStressAttemptedRun] = useState(false);
   // Snapshotted at the moment a run actually finishes — not read live off
   // stressForm at export time, since the form's env/credential/counts could
   // have been changed since (about to run a new test) while the last
@@ -160,6 +164,7 @@ export default function Endpoints() {
     setStressResult(null);
     setStressRanWith(null);
     setStressError('');
+    setStressAttemptedRun(false);
   };
 
   const closeStressTest = () => {
@@ -188,9 +193,12 @@ export default function Endpoints() {
 
   const handleRunStressTest = async (confirmProd = false) => {
     setStressError('');
+    setStressAttemptedRun(true);
     const total = Number(stressForm.total_requests);
     const conc = Number(stressForm.concurrency);
-    if (!stressForm.environment_id) { setStressError('Pick an environment first.'); return; }
+    // No text error for this one — the red border on Environment (and
+    // Credential, which isn't even required to run) below already says it.
+    if (!stressForm.environment_id) return;
     if (!Number.isInteger(total) || total < 1 || total > STRESS_MAX_TOTAL_REQUESTS) {
       setStressError(`Total requests must be a whole number between 1 and ${STRESS_MAX_TOTAL_REQUESTS}.`);
       return;
@@ -571,7 +579,7 @@ export default function Endpoints() {
                 <div>
                   <span className="field-label">Environment</span>
                   <select
-                    style={{ borderColor: !stressForm.environment_id ? 'var(--accent)' : undefined }}
+                    style={{ borderColor: stressAttemptedRun && !stressForm.environment_id ? 'var(--fail)' : undefined }}
                     value={stressForm.environment_id}
                     onChange={(e) => setStressForm({ ...stressForm, environment_id: e.target.value })}
                     disabled={stressRunning}
@@ -583,7 +591,7 @@ export default function Endpoints() {
                 <div>
                   <span className="field-label">Credential</span>
                   <select
-                    style={{ borderColor: !stressForm.auth_credential_id ? 'var(--accent)' : undefined }}
+                    style={{ borderColor: stressAttemptedRun && !stressForm.auth_credential_id ? 'var(--fail)' : undefined }}
                     value={stressForm.auth_credential_id}
                     onChange={(e) => setStressForm({ ...stressForm, auth_credential_id: e.target.value })}
                     disabled={stressRunning}
