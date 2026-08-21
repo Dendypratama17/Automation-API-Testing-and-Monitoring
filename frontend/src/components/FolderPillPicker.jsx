@@ -61,7 +61,11 @@ export default function FolderPillPicker({
     const spaceBelow = window.innerHeight - rect.bottom - 12;
     const spaceAbove = rect.top - 12;
     const openUpward = spaceBelow < 220 && spaceAbove > spaceBelow;
-    const maxHeight = Math.max(160, Math.min(320, openUpward ? spaceAbove : spaceBelow));
+    // 480 (bukan 320) — daftar folder/item sekarang lebih panjang (ada tab
+    // "All Folder" yang menampilkan semua section sekaligus), jadi kasih
+    // ruang lebih dulu sebelum harus scroll, tetap dibatasi ruang layar
+    // yang benar-benar tersedia.
+    const maxHeight = Math.max(160, Math.min(480, openUpward ? spaceAbove : spaceBelow));
     setPos(openUpward
       ? { bottom: window.innerHeight - rect.top + 4, left, width, maxHeight }
       : { top: rect.bottom + 4, left, width, maxHeight });
@@ -81,11 +85,17 @@ export default function FolderPillPicker({
   }
   const folderLabelByKey = { none: 'No Folder' };
   for (const f of flattenFolders(folders || [])) folderLabelByKey[f.id] = folderOptionLabel(f);
-  const orderedKeys = [
+  const realKeys = [
     'none',
     ...flattenFolders(folders || []).map((f) => f.id),
   ].filter((key) => groups.has(key));
-  const currentKey = activeFolderKey != null && groups.has(activeFolderKey) ? activeFolderKey : orderedKeys[0];
+  // "All Folder" adalah tab default — menampilkan gabungan semua folder di
+  // list yang scroll, tetap dipisah per section (label folder kecil) biar
+  // asal tiap item jelas, bukan cuma daftar rata tanpa keterangan.
+  const orderedKeys = realKeys.length > 0 ? ['__all__', ...realKeys] : [];
+  const currentKey = activeFolderKey != null && (activeFolderKey === '__all__' || groups.has(activeFolderKey))
+    ? activeFolderKey
+    : orderedKeys[0];
 
   const selected = options.find((o) => String(o.id) === String(value));
 
@@ -175,7 +185,7 @@ export default function FolderPillPicker({
                     className={`folder-tab${key === currentKey ? ' active' : ''}`}
                     onClick={() => setActiveFolderKey(key)}
                   >
-                    {folderLabelByKey[key] || 'Folder'}
+                    {key === '__all__' ? 'All Folder' : (folderLabelByKey[key] || 'Folder')}
                   </button>
                 ))}
               </div>
@@ -190,6 +200,18 @@ export default function FolderPillPicker({
               ) : (
                 searchResults.map((opt) => renderItemRow(opt, folderIdOf(opt) ?? 'none'))
               )
+            ) : currentKey === '__all__' ? (
+              realKeys.map((key, gi) => (
+                <div key={key}>
+                  <div
+                    className="cred-select-group-label"
+                    style={gi > 0 ? { marginTop: 6, borderTop: '1px solid var(--border)', paddingTop: 10 } : undefined}
+                  >
+                    {folderLabelByKey[key] || 'Folder'}
+                  </div>
+                  {groups.get(key).map((opt) => renderItemRow(opt, null))}
+                </div>
+              ))
             ) : (
               currentKey && groups.get(currentKey).map((opt) => renderItemRow(opt, null))
             )}
