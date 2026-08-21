@@ -15,6 +15,10 @@ import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
 export default function FolderPillPicker({
   value, options, folders, folderIdOf, getLabel, onPick, placeholder = 'Select...',
   extraTopAction, disabled, title, borderColor, style,
+  // Baris tab folder biasanya wrap ke bawah kalau kepanjangan — set true
+  // untuk memaksanya jadi satu baris saja dengan scroll horizontal (dipakai
+  // Schedules' Select Flow, tidak untuk Select endpoint di step Flow).
+  singleLineTabs,
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
@@ -50,7 +54,17 @@ export default function FolderPillPicker({
     const rect = wrapRef.current.getBoundingClientRect();
     const width = Math.max(rect.width, 360);
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 12));
-    setPos({ top: rect.bottom + 4, left, width });
+    // Kalau ruang di bawah trigger terlalu sempit (tab folder + search bikin
+    // popup ini lebih tinggi dari dropdown biasa), buka ke ATAS trigger
+    // saja selama ruang di atas lebih luas — daripada dropdown-nya
+    // kepotong di bawah tepi layar.
+    const spaceBelow = window.innerHeight - rect.bottom - 12;
+    const spaceAbove = rect.top - 12;
+    const openUpward = spaceBelow < 220 && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(160, Math.min(320, openUpward ? spaceAbove : spaceBelow));
+    setPos(openUpward
+      ? { bottom: window.innerHeight - rect.top + 4, left, width, maxHeight }
+      : { top: rect.bottom + 4, left, width, maxHeight });
     setActiveFolderKey(null); // reset — jatuh balik ke tab pertama tiap dibuka
     setSearch('');
     setOpen(true);
@@ -119,55 +133,67 @@ export default function FolderPillPicker({
         <ChevronIcon style={{ transform: 'rotate(90deg)', flexShrink: 0, color: 'var(--text-dim)' }} />
       </button>
       {open && pos && createPortal(
-        <div ref={listRef} className="cred-select-list" style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width }}>
-          {extraTopAction && (
-            <button
-              type="button"
-              className="cred-select-item"
-              style={{ borderBottom: '1px solid var(--border)', marginBottom: 4, paddingBottom: 10 }}
-              onClick={() => { setOpen(false); extraTopAction.onClick(); }}
-            >
-              {extraTopAction.label}
-            </button>
-          )}
-          {orderedKeys.length === 0 ? (
-            <div className="hint" style={{ padding: '8px 10px', fontSize: 12.5 }}>Nothing configured yet.</div>
-          ) : (
-            <>
+        <div
+          ref={listRef}
+          className="cred-select-list"
+          style={{
+            position: 'fixed', top: pos.top, bottom: pos.bottom, left: pos.left, width: pos.width,
+            maxHeight: pos.maxHeight, overflow: 'hidden',
+          }}
+        >
+          {/* Bagian ini TIDAK ikut scroll — search box dan tab folder tetap
+              di tempat, cuma daftar item di bawahnya (div berikutnya) yang
+              scroll sendiri. */}
+          <div style={{ flexShrink: 0 }}>
+            {extraTopAction && (
+              <button
+                type="button"
+                className="cred-select-item"
+                style={{ borderBottom: '1px solid var(--border)', marginBottom: 4, paddingBottom: 10 }}
+                onClick={() => { setOpen(false); extraTopAction.onClick(); }}
+              >
+                {extraTopAction.label}
+              </button>
+            )}
+            {orderedKeys.length > 0 && (
               <div className="cred-select-search">
                 <SearchIcon style={{ flexShrink: 0, color: 'var(--text-dim)' }} />
                 <input
                   autoFocus
-                  placeholder="Search folder or name..."
+                  placeholder=" Search name..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              {searching ? (
-                searchResults.length === 0 ? (
-                  <div className="hint" style={{ padding: '8px 10px', fontSize: 12.5 }}>No match.</div>
-                ) : (
-                  searchResults.map((opt) => renderItemRow(opt, folderIdOf(opt) ?? 'none'))
-                )
+            )}
+            {orderedKeys.length > 0 && !searching && (
+              <div className={`folder-pill-tabs${singleLineTabs ? ' single-line' : ''}`}>
+                {orderedKeys.map((key) => (
+                  <button
+                    type="button"
+                    key={key}
+                    className={`folder-tab${key === currentKey ? ' active' : ''}`}
+                    onClick={() => setActiveFolderKey(key)}
+                  >
+                    {folderLabelByKey[key] || 'Folder'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {orderedKeys.length === 0 ? (
+              <div className="hint" style={{ padding: '8px 10px', fontSize: 12.5 }}>Nothing configured yet.</div>
+            ) : searching ? (
+              searchResults.length === 0 ? (
+                <div className="hint" style={{ padding: '8px 10px', fontSize: 12.5 }}>No match.</div>
               ) : (
-                <>
-                  <div className="folder-pill-tabs">
-                    {orderedKeys.map((key) => (
-                      <button
-                        type="button"
-                        key={key}
-                        className={`folder-tab${key === currentKey ? ' active' : ''}`}
-                        onClick={() => setActiveFolderKey(key)}
-                      >
-                        {folderLabelByKey[key] || 'Folder'}
-                      </button>
-                    ))}
-                  </div>
-                  {currentKey && groups.get(currentKey).map((opt) => renderItemRow(opt, null))}
-                </>
-              )}
-            </>
-          )}
+                searchResults.map((opt) => renderItemRow(opt, folderIdOf(opt) ?? 'none'))
+              )
+            ) : (
+              currentKey && groups.get(currentKey).map((opt) => renderItemRow(opt, null))
+            )}
+          </div>
         </div>,
         document.body
       )}

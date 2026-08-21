@@ -440,7 +440,16 @@ function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title,
     const rect = wrapRef.current.getBoundingClientRect();
     const width = Math.max(rect.width, 320);
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 12));
-    setPos({ top: rect.bottom + 4, left, width });
+    // Kalau ruang di bawah trigger sempit, buka ke ATAS trigger saja selama
+    // ruang di atas lebih luas — daripada dropdown-nya kepotong di bawah
+    // tepi layar.
+    const spaceBelow = window.innerHeight - rect.bottom - 12;
+    const spaceAbove = rect.top - 12;
+    const openUpward = spaceBelow < 220 && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(160, Math.min(320, openUpward ? spaceAbove : spaceBelow));
+    setPos(openUpward
+      ? { bottom: window.innerHeight - rect.top + 4, left, width, maxHeight }
+      : { top: rect.bottom + 4, left, width, maxHeight });
     setActiveGroup(null); // jatuh balik ke tab pertama tiap dibuka
     setOpen(true);
   };
@@ -461,60 +470,69 @@ function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title,
         <ChevronIcon style={{ transform: 'rotate(90deg)', flexShrink: 0, color: 'var(--text-dim)' }} />
       </button>
       {open && pos && createPortal(
-        <div ref={listRef} className="cred-select-list" style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width }}>
-          {extraTopAction && (
-            <button
-              type="button"
-              className="cred-select-item"
-              style={{ borderBottom: '1px solid var(--border)', marginBottom: 4, paddingBottom: 10 }}
-              onClick={() => { setOpen(false); extraTopAction.onClick(); }}
-            >
-              <span className="cred-select-check"><CheckIcon style={{ visibility: 'hidden' }} /></span>
-              {extraTopAction.label}
-            </button>
-          )}
-          {options.length === 0 && <div className="hint" style={{ padding: '8px 10px', fontSize: 12.5 }}>Nothing configured yet.</div>}
-          {groupBy ? (
-            (() => {
-              const groups = new Map();
+        <div
+          ref={listRef}
+          className="cred-select-list"
+          style={{
+            position: 'fixed', top: pos.top, bottom: pos.bottom, left: pos.left, width: pos.width,
+            maxHeight: pos.maxHeight, overflow: 'hidden',
+          }}
+        >
+          {(() => {
+            const groups = new Map();
+            if (groupBy) {
               for (const opt of options) {
                 const key = groupBy(opt) || 'Other';
                 if (!groups.has(key)) groups.set(key, []);
                 groups.get(key).push(opt);
               }
-              const keys = sortGroupKeys([...groups.keys()]);
-              const currentKey = activeGroup != null && groups.has(activeGroup) ? activeGroup : keys[0];
-              return (
-                <>
-                  <div className="folder-pill-tabs">
-                    {keys.map((key) => (
-                      <button
-                        type="button"
-                        key={key}
-                        className={`folder-tab${key === currentKey ? ' active' : ''}`}
-                        onClick={() => setActiveGroup(key)}
-                      >
-                        {key}
-                      </button>
-                    ))}
-                  </div>
-                  {groups.get(currentKey).map((opt, i) => (
+            }
+            const keys = groupBy ? sortGroupKeys([...groups.keys()]) : [];
+            const currentKey = activeGroup != null && groups.has(activeGroup) ? activeGroup : keys[0];
+            const items = groupBy ? (groups.get(currentKey) || []) : options;
+            return (
+              <>
+                {/* Search box (kalau ada) dan tab environment TIDAK ikut
+                    scroll — cuma daftar item di bawahnya yang scroll. */}
+                <div style={{ flexShrink: 0 }}>
+                  {extraTopAction && (
+                    <button
+                      type="button"
+                      className="cred-select-item"
+                      style={{ borderBottom: '1px solid var(--border)', marginBottom: 4, paddingBottom: 10 }}
+                      onClick={() => { setOpen(false); extraTopAction.onClick(); }}
+                    >
+                      <span className="cred-select-check"><CheckIcon style={{ visibility: 'hidden' }} /></span>
+                      {extraTopAction.label}
+                    </button>
+                  )}
+                  {groupBy && keys.length > 0 && (
+                    <div className="folder-pill-tabs">
+                      {keys.map((key) => (
+                        <button
+                          type="button"
+                          key={key}
+                          className={`folder-tab${key === currentKey ? ' active' : ''}`}
+                          onClick={() => setActiveGroup(key)}
+                        >
+                          {key}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ overflowY: 'auto', flex: 1 }}>
+                  {options.length === 0 && <div className="hint" style={{ padding: '8px 10px', fontSize: 12.5 }}>Nothing configured yet.</div>}
+                  {items.map((opt, i) => (
                     <button type="button" key={i} className="cred-select-item" onClick={() => { setOpen(false); onPick(opt); }}>
                       <span className="cred-select-check"><CheckIcon style={{ visibility: 'hidden' }} /></span>
                       {renderOption(opt)}
                     </button>
                   ))}
-                </>
-              );
-            })()
-          ) : (
-            options.map((opt, i) => (
-              <button type="button" key={i} className="cred-select-item" onClick={() => { setOpen(false); onPick(opt); }}>
-                <span className="cred-select-check"><CheckIcon style={{ visibility: 'hidden' }} /></span>
-                {renderOption(opt)}
-              </button>
-            ))
-          )}
+                </div>
+              </>
+            );
+          })()}
         </div>,
         document.body
       )}

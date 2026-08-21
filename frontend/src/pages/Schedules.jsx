@@ -347,6 +347,7 @@ export default function Schedules() {
             getLabel={(f) => f.name}
             onPick={(f) => { setForm({ ...form, flow_id: String(f.id) }); setFormErrors({ ...formErrors, flow: false }); }}
             borderColor={formErrors.flow ? 'var(--fail)' : undefined}
+            singleLineTabs
             style={{ flexShrink: 0, width: 200 }}
           />
           <select
