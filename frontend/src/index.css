@@ -496,7 +496,7 @@ button.btn-icon {
    FilePicker) | remove — a fixed grid (not flex) so the value column lines up
    the same width whether that row holds a plain input or the FilePicker
    button, which flex sized only to its own content. */
-.form-data-row { display: grid; grid-template-columns: auto 1fr 90px 1fr auto; align-items: center; gap: 8px; }
+.form-data-row { display: grid; grid-template-columns: auto auto 1fr 90px 1fr auto; align-items: center; gap: 8px; }
 .file-picker-menu { display: inline-block; }
 .form-data-row .file-picker,
 .form-data-row .file-picker-menu { width: 100%; }

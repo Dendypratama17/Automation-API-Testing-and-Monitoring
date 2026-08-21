@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import FilePicker from './FilePicker.jsx';
+import { GripIcon } from './icons.jsx';
 import { getTestFiles, getTestFile } from '../api/client';
 
 const emptyFormRow = () => ({ key: '', type: 'text', value: '', enabled: true, fileMeta: null });
@@ -71,6 +72,25 @@ export default function FormDataEditor({ rows, onChange }) {
   const [testFiles, setTestFiles] = useState([]);
   useEffect(() => { getTestFiles().then(setTestFiles).catch(() => {}); }, []);
 
+  // Reorder is purely local — same client-only model as the Flow editor's
+  // step list (see Flows.jsx's handleDropStep): splice the dragged row out
+  // and back in at the drop target, then hand the whole array to onChange.
+  // Whatever eventually persists this (saving the endpoint/step) writes the
+  // rows in whatever order they're in by then.
+  const [draggedIdx, setDraggedIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
+
+  const handleDropRow = (targetIdx) => {
+    const fromIdx = draggedIdx;
+    setDraggedIdx(null);
+    setDragOverIdx(null);
+    if (fromIdx == null || fromIdx === targetIdx) return;
+    const next = [...rows];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(targetIdx, 0, moved);
+    onChange(next);
+  };
+
   const update = (idx, field, value) => {
     const next = [...rows];
     next[idx] = { ...next[idx], [field]: value };
@@ -113,7 +133,27 @@ export default function FormDataEditor({ rows, onChange }) {
   return (
     <div className="stack" style={{ gap: 6 }}>
       {rows.map((row, idx) => (
-        <div key={idx} className="form-data-row">
+        <div
+          key={idx}
+          className="form-data-row"
+          onDragOver={(e) => { e.preventDefault(); if (dragOverIdx !== idx) setDragOverIdx(idx); }}
+          onDragLeave={() => setDragOverIdx((i) => (i === idx ? null : i))}
+          onDrop={() => handleDropRow(idx)}
+          style={{
+            opacity: draggedIdx === idx ? 0.4 : 1,
+            borderTop: dragOverIdx === idx && draggedIdx !== idx ? '2px solid var(--accent)' : undefined,
+          }}
+        >
+          <span
+            className="hint"
+            style={{ cursor: 'grab' }}
+            draggable
+            onDragStart={(e) => { e.stopPropagation(); setDraggedIdx(idx); }}
+            onDragEnd={() => { setDraggedIdx(null); setDragOverIdx(null); }}
+            title="Drag to reorder"
+          >
+            <GripIcon />
+          </span>
           <input
             type="checkbox"
             checked={row.enabled !== false}
