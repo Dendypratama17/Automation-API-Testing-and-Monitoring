@@ -1354,6 +1354,14 @@ export default function Flows() {
   useEffect(() => {
     if (isEditingFlowOpen) newFlowPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [isEditingFlowOpen]);
+  // Same idea for clicking a flow row to open its read-only "View Flow"
+  // detail panel — otherwise it renders below the fold and needs a manual
+  // scroll to actually see.
+  const viewFlowPanelRef = useRef(null);
+  const isViewingFlowOpen = !!viewingFlow;
+  useEffect(() => {
+    if (isViewingFlowOpen) viewFlowPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [isViewingFlowOpen]);
   useEffect(() => {
     if (running && liveTotalSteps > 0) {
       window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
@@ -1872,7 +1880,7 @@ export default function Flows() {
           {error && <div className="card error-text">{error}</div>}
 
           {viewingFlow && (
-            <div className="card">
+            <div className="card" ref={viewFlowPanelRef}>
               <div className="card-row">
                 <h4 style={{ margin: 0 }}>View Flow: {viewingFlow.name}</h4>
                 <div className="toolbar">
