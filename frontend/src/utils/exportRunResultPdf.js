@@ -349,8 +349,17 @@ function buildBatchRunResultPdf(batchResult) {
 // — one entry per pass of "Run Selected xN" (see Flows.jsx's handleBatchRun).
 // Every pass runs the exact same selected flows, so the flow list is read
 // off whichever pass actually has a result, not assumed to be the first.
-function buildRepeatBatchRunResultPdf(repeatResults, totalRepeats) {
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+// `opts.doc`: append into an already-open jsPDF document (starting on a
+// fresh page) instead of creating a new one, and skip drawing this
+// section's own footer — used to combine this detailed report with the
+// summary report (exportRepeatSummaryPdf.js) into ONE downloadable file.
+// Two separate doc.save() calls back-to-back get the second one silently
+// blocked by the browser's "multiple automatic downloads" guard — even
+// with a delay between them — so one combined file is the only reliable
+// way to deliver both sections from a single click.
+export function buildRepeatBatchRunResultPdf(repeatResults, totalRepeats, opts = {}) {
+  const doc = opts.doc || new jsPDF({ unit: 'pt', format: 'a4' });
+  if (opts.doc) doc.addPage();
   const ctx = createReportContext(doc);
 
   const passed = (rr) => !!rr.result && !rr.error && rr.result.results.every((r) => !r.error && r.flow_run?.status === 'PASS');
@@ -378,7 +387,7 @@ function buildRepeatBatchRunResultPdf(repeatResults, totalRepeats) {
     if (i < repeatResults.length - 1) ctx.drawDivider();
   });
 
-  ctx.drawFooter();
+  if (!opts.skipFooter) ctx.drawFooter();
   const nameSlug = flowNames.map(slugifyForFilename).filter(Boolean).join('_').slice(0, 80);
   return { doc, filename: `repeat-batch-run-${nameSlug ? `${nameSlug}-` : ''}x${repeatResults.length}.pdf` };
 }

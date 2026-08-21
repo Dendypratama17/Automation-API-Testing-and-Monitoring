@@ -22,11 +22,8 @@ import AuthorizationField from '../components/AuthorizationField.jsx';
 import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
 import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
-import {
-  exportRunResultToPdf, getRunResultPdfBase64, exportBatchRunResultToPdf, getBatchRunResultPdfBase64,
-  exportRepeatBatchRunResultToPdf, getRepeatBatchRunResultPdfBase64,
-} from '../utils/exportRunResultPdf.js';
-import { exportRepeatSummaryToPdf, getRepeatSummaryPdfBase64 } from '../utils/exportRepeatSummaryPdf.js';
+import { exportRunResultToPdf, getRunResultPdfBase64, exportBatchRunResultToPdf, getBatchRunResultPdfBase64 } from '../utils/exportRunResultPdf.js';
+import { exportRepeatCombinedToPdf, getRepeatCombinedPdfBase64 } from '../utils/exportRepeatSummaryPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
 import { loadSelectedFolder, saveSelectedFolder, hasStoredFolder } from '../utils/persistedFolder.js';
 import ScrollToTopButton from '../components/ScrollToTopButton.jsx';
@@ -1495,16 +1492,15 @@ export default function Flows() {
     }
   };
 
-  // Two separate PDFs, both downloaded together — the visual summary
-  // (pass-rate chart + a short written explanation per flow, from
-  // exportRepeatSummaryPdf.js) plus the detailed report (every repeat's
-  // full flow/step breakdown, from exportRunResultPdf.js). Triggering two
-  // doc.save() calls back-to-back in the same tick gets the second one
-  // silently blocked by the browser's "multiple automatic downloads"
-  // guard — a small delay between them is the standard workaround.
+  // One combined PDF — the visual summary (pass-rate chart + a short
+  // written explanation per flow) followed by the detailed report (every
+  // repeat's full flow/step breakdown), as two sections of the SAME file.
+  // Two separate doc.save() calls back-to-back get the second one silently
+  // blocked by the browser's "multiple automatic downloads" guard (even
+  // with a delay between them), so one file is the only reliable way to
+  // deliver both sections from a single click.
   const handleDownloadRepeatResultsPdfs = () => {
-    exportRepeatSummaryToPdf(repeatResults, runningRepeatCount);
-    setTimeout(() => exportRepeatBatchRunResultToPdf(repeatResults, runningRepeatCount), 400);
+    exportRepeatCombinedToPdf(repeatResults, runningRepeatCount);
   };
 
   const handleShareRepeatResultsToTelegram = async () => {
@@ -1512,10 +1508,8 @@ export default function Flows() {
     try {
       const passCount = repeatResults.filter((rr) => rr.result && !rr.error && rr.result.results.every((r) => !r.error && r.flow_run?.status === 'PASS')).length;
       const caption = `Repeated Batch Run: ${passCount}/${repeatResults.length} of ${runningRepeatCount}x passed`;
-      const detailed = getRepeatBatchRunResultPdfBase64(repeatResults, runningRepeatCount);
-      const summary = getRepeatSummaryPdfBase64(repeatResults, runningRepeatCount);
-      await sendDocumentToTelegram({ filename: summary.filename, caption, fileBase64: summary.base64 });
-      await sendDocumentToTelegram({ filename: detailed.filename, caption, fileBase64: detailed.base64 });
+      const { base64, filename } = getRepeatCombinedPdfBase64(repeatResults, runningRepeatCount);
+      await sendDocumentToTelegram({ filename, caption, fileBase64: base64 });
       showToast('Sent to Telegram.');
     } catch (err) {
       showToast(err.response?.data?.error || err.message, 'error');
