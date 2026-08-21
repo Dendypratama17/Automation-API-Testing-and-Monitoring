@@ -698,12 +698,6 @@ details[open] > summary.step-summary .chevron { transform: rotate(90deg); }
 .stack { display: flex; flex-direction: column; gap: 12px; }
 .hint { color: var(--text-dim); font-size: 12px; }
 .error-text { color: var(--fail); font-size: 13px; }
-select.field-invalid {
-  border-color: var(--fail);
-}
-select.field-invalid:focus {
-  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.25);
-}
 
 .scroll-to-top-btn {
   position: fixed;

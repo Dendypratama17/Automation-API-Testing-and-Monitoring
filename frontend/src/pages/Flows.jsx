@@ -361,7 +361,7 @@ function sortGroupKeys(keys) {
 // it's purely "pick one of these to apply to every step." An optional
 // `groupBy` splits the list into labelled sections (e.g. one per
 // environment) instead of one long mixed list — see "Select account" below.
-function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title, groupBy, extraTopAction, accentBorder }) {
+function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title, groupBy, extraTopAction }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const wrapRef = useRef(null);
@@ -403,11 +403,7 @@ function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title,
   };
 
   return (
-    <div
-      ref={wrapRef}
-      className="cred-select-combo"
-      style={{ position: 'relative', flex: 1, minWidth: 0, ...(accentBorder ? { borderColor: 'var(--accent)' } : null) }}
-    >
+    <div ref={wrapRef} className="cred-select-combo" style={{ position: 'relative', flex: 1, minWidth: 0 }}>
       <button
         type="button"
         className="cred-select-combo-input"
@@ -1856,7 +1852,6 @@ export default function Flows() {
                 <BulkSelectDropdown
                   placeholder="Select account"
                   title="Pick a credential, then choose whether to only fill empty steps or override every step's Authorization."
-                  accentBorder
                   options={authCredentials}
                   groupBy={(c) => c.environment_name || 'No Environment'}
                   renderOption={(c) => (
