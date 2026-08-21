@@ -10,7 +10,7 @@ import JsonBlock from '../components/JsonBlock.jsx';
 import JsonPasteEditor from '../components/JsonPasteEditor.jsx';
 import KeyValueEditor, { objectToRows, rowsToObject } from '../components/KeyValueEditor.jsx';
 import FormDataEditor, { objectToFormRows, formRowsToObject, formRowsToBody, emptyFormRow } from '../components/FormDataEditor.jsx';
-import { TrashIcon, EditIcon, PlayIcon, ChevronIcon, CopyIcon, GripIcon, FolderIcon, XIcon, CheckIcon, DownloadIcon, SendIcon } from '../components/icons.jsx';
+import { TrashIcon, EditIcon, PlayIcon, ChevronIcon, CopyIcon, GripIcon, FolderIcon, XIcon, CheckIcon, DownloadIcon, SendIcon, ZapIcon } from '../components/icons.jsx';
 import FolderTree from '../components/FolderTree.jsx';
 import FolderPillPicker from '../components/FolderPillPicker.jsx';
 import AssertionsEditor, { objectToAssertionRows, assertionRowsToArray, emptyAssertionRow } from '../components/AssertionsEditor.jsx';
@@ -2218,14 +2218,13 @@ export default function Flows() {
                     )}
 
                     {((step.endpoint_id || step.url_template) || idx > 0) && (
-                      <div className="toolbar" style={{ marginBottom: 8, flexWrap: 'nowrap', gap: 16, alignItems: 'center' }}>
+                      <div className="toolbar" style={{ marginBottom: 8, flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                         {(step.endpoint_id || step.url_template) && (
                           <label
-                            className="hint"
-                            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}
+                            className="step-flag-chip"
                             title="Wait this many seconds before running this step — e.g. giving an async backend process time to finish first."
                           >
-                            Delay
+                            <span aria-hidden="true">⏱</span>
                             <input
                               type="number"
                               min="0"
@@ -2233,19 +2232,15 @@ export default function Flows() {
                               placeholder="0"
                               value={step.delayMs ? String(Number(step.delayMs) / 1000) : ''}
                               onChange={(e) => handleStepChange(idx, 'delayMs', e.target.value ? String(Number(e.target.value) * 1000) : '')}
-                              style={{ width: 60 }}
+                              className="step-flag-chip-input"
                             />
-                            s
+                            <span>s delay</span>
                           </label>
-                        )}
-                        {(step.endpoint_id || step.url_template) && idx > 0 && (
-                          <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
                         )}
                         {idx > 0 && (
                           <>
                             <label
-                              className="hint"
-                              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}
+                              className={`step-flag-chip${step.parallelWithPrevious === true ? ' active' : ''}`}
                               title="Runs at the same time as the previous step instead of waiting for it to finish."
                             >
                               <input
@@ -2254,21 +2249,21 @@ export default function Flows() {
                                 onChange={(e) => handleStepChange(idx, 'parallelWithPrevious', e.target.checked)}
                                 disabled={!!step.runConditionStatusCode}
                               />
+                              <ZapIcon aria-hidden="true" />
                               Run in parallel
                             </label>
-                            <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
                             <label
-                              className="hint"
-                              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}
+                              className={`step-flag-chip${step.runConditionStatusCode ? ' active' : ''}`}
                               title="Leave empty to always run this step. When set, this step is recorded as SKIPPED (never sent) unless the immediately preceding step's response status code equals this value."
                             >
-                              Only if status
+                              <span className="step-flag-chip-badge">IF</span>
+                              status
                               <input
                                 type="number"
-                                placeholder="Any"
+                                placeholder="any"
                                 value={step.runConditionStatusCode}
                                 onChange={(e) => handleRunConditionChange(idx, e.target.value)}
-                                style={{ width: 70 }}
+                                className="step-flag-chip-input"
                               />
                             </label>
                           </>
