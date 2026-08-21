@@ -147,6 +147,18 @@ a { color: inherit; }
 
 /* ---------- Forms ---------- */
 
+/* Sembunyikan tombol stepper naik/turun bawaan browser pada input angka
+   tertentu (mis. Repeat count di Flow List) — cukup bisa ketik angkanya
+   langsung, tidak perlu tombol +/-. */
+input.no-spinner::-webkit-outer-spin-button,
+input.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input.no-spinner {
+  -moz-appearance: textfield;
+}
+
 input[type="text"], input[type="file"]:not([type="file"]), input:not([type]), input[type="number"], input[type="date"], input[type="password"],
 select, textarea {
   font-family: inherit;

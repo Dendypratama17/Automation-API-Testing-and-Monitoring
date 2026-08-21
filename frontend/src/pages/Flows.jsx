@@ -1673,6 +1673,7 @@ export default function Flows() {
                     </select>
                     <input
                       type="number"
+                      className="no-spinner"
                       min={1}
                       max={50}
                       value={repeatCount}
