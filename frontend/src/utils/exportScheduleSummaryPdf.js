@@ -7,6 +7,17 @@ function resourcePath(template) {
   return String(template || '').replace(/^\{\{base_url\}\}/, '') || '/';
 }
 
+// Filesystem-safe stand-in for the schedule's flow name — same reasoning as
+// exportRunResultPdf.js's copy: a freeform name can have spaces/"->" /
+// parentheses that would otherwise break the filename.
+function slugifyForFilename(name) {
+  return (name || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
 const STATUS_COLORS = {
   PASS: [22, 163, 74],
   FAIL: [220, 38, 38],
@@ -295,5 +306,6 @@ export function exportScheduleSummaryToPdf(schedule, runs) {
     doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - footerZone + 12, { align: 'right' });
   }
 
-  doc.save(`schedule-${schedule.id}-summary.pdf`);
+  const nameSlug = slugifyForFilename(schedule.flow_name || schedule.name);
+  doc.save(`schedule-${nameSlug ? `${nameSlug}-` : ''}${schedule.id}-summary.pdf`);
 }

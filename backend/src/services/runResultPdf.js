@@ -7,6 +7,17 @@ const { describeAssertionParts } = require('./assertionDescriptions');
 // not just the manual "Share to Telegram" click from the browser. Kept in
 // sync by hand; a change to one report's look should mirror in the other.
 
+// Filesystem-safe stand-in for the flow's name — mirrors the frontend copy
+// in exportRunResultPdf.js, so a downloaded/shared file reads with the
+// flow's name in it instead of just the bare run id.
+function slugifyForFilename(name) {
+  return (name || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
 function sanitizeBody(body) {
   if (Array.isArray(body)) return body.map(sanitizeBody);
   if (body && typeof body === 'object') {
@@ -246,7 +257,8 @@ function buildRunResultPdf(flowRun) {
   }
 
   const buffer = Buffer.from(doc.output('arraybuffer'));
-  return { buffer, filename: `flow-run-${flowRun.id}.pdf` };
+  const nameSlug = slugifyForFilename(flowRun.flow_name);
+  return { buffer, filename: `flow-run-${nameSlug ? `${nameSlug}-` : ''}${flowRun.id}.pdf` };
 }
 
 module.exports = { buildRunResultPdf };

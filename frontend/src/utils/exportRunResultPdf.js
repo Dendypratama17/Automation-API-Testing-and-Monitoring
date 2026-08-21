@@ -1,6 +1,18 @@
 import { jsPDF } from 'jspdf';
 import { describeAssertionParts } from './assertionDescriptions.js';
 
+// Filesystem-safe stand-in for a flow's name — so a downloaded/shared file
+// reads as e.g. "flow-run-Checkout-Top-up-EA-Enterprise-Active-1356.pdf"
+// instead of just the bare run/flow id, without risking path-breaking
+// characters (spaces, "->", parentheses, ...) a freeform flow name can have.
+function slugifyForFilename(name) {
+  return (name || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
 // A base64 file blob would dump megabytes of unreadable text into the PDF —
 // same idea as the backend's sanitizeBodyForStorage / the JSON-tab preview.
 function sanitizeBody(body) {
@@ -285,7 +297,8 @@ function buildRunResultPdf(runResult) {
   ctx.drawHeaderBand('Flow Run Report');
   ctx.renderFlowResult({ flow_name: runResult.flow_name, flow_run: runResult.flow_run, steps: runResult.steps });
   ctx.drawFooter();
-  return { doc, filename: `flow-run-${runResult.flow_run.id}.pdf` };
+  const nameSlug = slugifyForFilename(runResult.flow_name);
+  return { doc, filename: `flow-run-${nameSlug ? `${nameSlug}-` : ''}${runResult.flow_run.id}.pdf` };
 }
 
 function buildBatchRunResultPdf(batchResult) {
@@ -297,7 +310,8 @@ function buildBatchRunResultPdf(batchResult) {
     if (idx < batchResult.results.length - 1) ctx.drawDivider();
   });
   ctx.drawFooter();
-  return { doc, filename: `batch-run-${batchResult.results.map((r) => r.flow_id).join('-')}.pdf` };
+  const nameSlug = batchResult.results.map((r) => slugifyForFilename(r.flow_name)).filter(Boolean).join('_').slice(0, 80);
+  return { doc, filename: `batch-run-${nameSlug ? `${nameSlug}-` : ''}${batchResult.results.map((r) => r.flow_id).join('-')}.pdf` };
 }
 
 export function exportRunResultToPdf(runResult) {
