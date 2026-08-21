@@ -2235,30 +2235,35 @@ export default function Flows() {
                     )}
 
                     {idx > 0 && (
-                      <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 12.5 }}>
-                        <input
-                          type="checkbox"
-                          checked={step.parallelWithPrevious === true}
-                          onChange={(e) => handleStepChange(idx, 'parallelWithPrevious', e.target.checked)}
-                          disabled={!!step.runConditionStatusCode}
-                        />
-                        Run this step at the same time as the previous one, instead of waiting for it to finish
-                      </label>
-                    )}
-
-                    {idx > 0 && (
-                      <div className="toolbar" style={{ marginBottom: 8, flexWrap: 'nowrap' }}>
-                        <label className="hint" style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}>
-                          Only run if previous step's status code is
+                      <div className="toolbar" style={{ marginBottom: 8, flexWrap: 'nowrap', gap: 16, alignItems: 'center' }}>
+                        <label
+                          className="hint"
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}
+                          title="Runs at the same time as the previous step instead of waiting for it to finish."
+                        >
+                          <input
+                            type="checkbox"
+                            checked={step.parallelWithPrevious === true}
+                            onChange={(e) => handleStepChange(idx, 'parallelWithPrevious', e.target.checked)}
+                            disabled={!!step.runConditionStatusCode}
+                          />
+                          Run in parallel
                         </label>
-                        <input
-                          type="number"
-                          placeholder="Always run"
-                          value={step.runConditionStatusCode}
-                          onChange={(e) => handleRunConditionChange(idx, e.target.value)}
-                          style={{ width: 90 }}
+                        <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
+                        <label
+                          className="hint"
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, whiteSpace: 'nowrap' }}
                           title="Leave empty to always run this step. When set, this step is recorded as SKIPPED (never sent) unless the immediately preceding step's response status code equals this value."
-                        />
+                        >
+                          Only if status
+                          <input
+                            type="number"
+                            placeholder="Any"
+                            value={step.runConditionStatusCode}
+                            onChange={(e) => handleRunConditionChange(idx, e.target.value)}
+                            style={{ width: 70 }}
+                          />
+                        </label>
                       </div>
                     )}
 
