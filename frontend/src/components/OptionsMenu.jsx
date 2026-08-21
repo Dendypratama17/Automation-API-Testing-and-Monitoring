@@ -49,7 +49,15 @@ export default function OptionsMenu({ items, icon, title = 'Options', label, cla
     // the trigger button out from under a `position: fixed` menu computed
     // from a one-time snapshot of its coordinates — simplest correct fix is
     // to just close the menu rather than track/re-measure on every scroll.
-    const handleScroll = () => { setOpen(false); setSubmenuIndex(null); };
+    // BUT scrolling the menu's own list (it's max-height + overflow-y:auto
+    // for a long items list or a "Move to Folder" submenu with many
+    // folders) fires scroll events too — without this exemption, wheeling
+    // over that list closed the whole menu instead of scrolling it.
+    const handleScroll = (e) => {
+      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      setOpen(false);
+      setSubmenuIndex(null);
+    };
     document.addEventListener('mousedown', handleClickOutside);
     window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('resize', handleScroll);
