@@ -76,7 +76,19 @@ export default function OptionsMenu({ items, icon, title = 'Options', label, cla
       const next = !o;
       if (next && triggerRef.current) {
         const rect = triggerRef.current.getBoundingClientRect();
-        setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+        const right = window.innerWidth - rect.right;
+        // A trigger on the bottom-most row (e.g. the last item in a long
+        // list) can have less room below it than the menu's own max-height
+        // (320px, see .options-menu) — always opening downward then just
+        // ran the menu off the bottom of the viewport, cut off with no way
+        // to reach its lower items. Open upward instead whenever there's
+        // more room above than below.
+        const spaceBelow = window.innerHeight - rect.bottom - 12;
+        const spaceAbove = rect.top - 12;
+        const openUpward = spaceAbove > spaceBelow;
+        setMenuPos(openUpward
+          ? { bottom: window.innerHeight - rect.top + 4, right }
+          : { top: rect.bottom + 4, right });
       }
       if (!next) setSubmenuIndex(null);
       return next;
@@ -99,7 +111,7 @@ export default function OptionsMenu({ items, icon, title = 'Options', label, cla
         ) : (icon || <DotsIcon />)}
       </button>
       {open && menuPos && createPortal(
-        <div ref={menuRef} className="options-menu" style={{ position: 'fixed', top: menuPos.top, right: menuPos.right }}>
+        <div ref={menuRef} className="options-menu" style={{ position: 'fixed', top: menuPos.top, bottom: menuPos.bottom, right: menuPos.right }}>
           {activeSubmenu ? (
             <>
               <button className="options-menu-item" onClick={() => setSubmenuIndex(null)}>
