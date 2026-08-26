@@ -358,6 +358,15 @@ export default function JsonDiff() {
   };
 
   const handleOpenSaved = async (id) => {
+    // `locked` means whatever's currently in A/B is itself an already-saved
+    // comparison — safe to switch away from without asking. Anything typed/
+    // pasted while unlocked (fresh content, or edits after Unlock) has
+    // nowhere else it's persisted, so picking a different saved comparison
+    // would silently throw it away — same guard handleClear already uses.
+    if (
+      !locked && (jsonAText.trim() || jsonBText.trim())
+      && !(await confirm('Loading this saved comparison will replace JSON A and B. Anything not saved will be lost. Continue?'))
+    ) return;
     const saved = await getSavedJsonDiff(id);
     setJsonAText(JSON.stringify(saved.json_a, null, 2));
     setJsonBText(JSON.stringify(saved.json_b, null, 2));
