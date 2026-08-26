@@ -86,9 +86,16 @@ export default function OptionsMenu({ items, icon, title = 'Options', label, cla
         const spaceBelow = window.innerHeight - rect.bottom - 12;
         const spaceAbove = rect.top - 12;
         const openUpward = spaceAbove > spaceBelow;
+        // .options-menu's own CSS declares `top: calc(100% + 4px)` (its
+        // original position:absolute layout) — leaving `top` unset here
+        // when opening upward doesn't fall back to "auto", it falls back to
+        // THAT stylesheet value, which (now that inline style forces
+        // position:fixed) resolves against the viewport and collides with
+        // `bottom` into an invalid, invisible box. Both properties must be
+        // set explicitly every time so inline style fully overrides it.
         setMenuPos(openUpward
-          ? { bottom: window.innerHeight - rect.top + 4, right }
-          : { top: rect.bottom + 4, right });
+          ? { top: 'auto', bottom: window.innerHeight - rect.top + 4, right }
+          : { top: rect.bottom + 4, bottom: 'auto', right });
       }
       if (!next) setSubmenuIndex(null);
       return next;
