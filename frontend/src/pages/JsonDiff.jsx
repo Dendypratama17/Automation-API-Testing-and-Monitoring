@@ -474,7 +474,7 @@ export default function JsonDiff() {
               diffLineSet={unmatchedA}
               missingLineSet={missingA}
               placeholder="Paste the first JSON here..."
-              height={420}
+              height={560}
               readOnly={locked}
             />
           </div>
@@ -493,7 +493,7 @@ export default function JsonDiff() {
               diffLineSet={unmatchedB}
               missingLineSet={missingB}
               placeholder="Paste the second JSON here..."
-              height={420}
+              height={560}
               readOnly={locked}
             />
           </div>
