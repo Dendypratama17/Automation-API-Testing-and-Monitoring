@@ -1781,7 +1781,7 @@ export default function Flows() {
                 </button>
               </div>
             </div>
-            <div className="table-scroll-x">
+            <div className="scroll-table" style={{ maxHeight: 460 }}>
             <table>
               <thead>
                 <tr>
