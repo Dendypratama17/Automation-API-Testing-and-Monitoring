@@ -31,15 +31,21 @@ export function objectToFormRows(body) {
   // single-character rows.
   const entries = Array.isArray(body) ? body : (body && typeof body === 'object' ? Object.entries(body) : []);
   if (!entries.length) return [emptyFormRow()];
-  return entries.map(([key, value]) => {
+  return entries.map(([key, rawValue]) => {
+    // A row unchecked in the editor is saved as { __disabled__: true, value }
+    // instead of being dropped (see formRowsToBody below) so it survives a
+    // save/reload as a disabled row instead of disappearing outright.
+    const disabled = rawValue && typeof rawValue === 'object' && rawValue.__disabled__;
+    const value = disabled ? rawValue.value : rawValue;
+    const enabled = !disabled;
     if (value && typeof value === 'object' && value.__file_url__) {
-      return { _id: nextFormRowId(), key, type: 'file', value: '', enabled: true, fileMeta: { __url__: true, url: value.url || '' } };
+      return { _id: nextFormRowId(), key, type: 'file', value: '', enabled, fileMeta: { __url__: true, url: value.url || '' } };
     }
     if (value && typeof value === 'object' && value.__file__) {
-      return { _id: nextFormRowId(), key, type: 'file', value: '', enabled: true, fileMeta: { name: value.name, mimeType: value.mimeType, data: value.data } };
+      return { _id: nextFormRowId(), key, type: 'file', value: '', enabled, fileMeta: { name: value.name, mimeType: value.mimeType, data: value.data } };
     }
     if (typeof value === 'string' && FILE_PLACEHOLDER_RE.test(value)) {
-      return { _id: nextFormRowId(), key, type: 'file', value: '', enabled: true, fileMeta: null };
+      return { _id: nextFormRowId(), key, type: 'file', value: '', enabled, fileMeta: null };
     }
     // A plain nested object/array (not a file marker) only shows up here
     // after editing the JSON preview, which unwraps a field's JSON-encoded
@@ -47,9 +53,9 @@ export function objectToFormRows(body) {
     // back into text instead of letting `String(value)` produce the useless
     // "[object Object]", since a multipart field can only be a flat string.
     if (value && typeof value === 'object') {
-      return { _id: nextFormRowId(), key, type: 'text', value: JSON.stringify(value), enabled: true, fileMeta: null };
+      return { _id: nextFormRowId(), key, type: 'text', value: JSON.stringify(value), enabled, fileMeta: null };
     }
-    return { _id: nextFormRowId(), key, type: 'text', value: value == null ? '' : String(value), enabled: true, fileMeta: null };
+    return { _id: nextFormRowId(), key, type: 'text', value: value == null ? '' : String(value), enabled, fileMeta: null };
   });
 }
 
@@ -78,17 +84,30 @@ export function formRowsToObject(rows) {
 // sharing the same key (e.g. two "documents" file parts in one multi-file
 // upload) both survive instead of the second silently overwriting the
 // first in an object slot.
+//
+// A row unchecked in the editor is still saved — as [key, { __disabled__:
+// true, value }] instead of being left out of the array entirely — so it
+// comes back as a disabled row on reload instead of vanishing outright (see
+// objectToFormRows above, and KeyValueEditor.jsx's rowsToObject for the same
+// pattern already used for headers). The backend (flowExecutor.js's
+// buildRequestBody) strips these before anything is actually sent.
 export function formRowsToBody(rows) {
   const entries = [];
   for (const row of rows) {
-    if (row.enabled === false || !row.key.trim()) continue;
+    if (!row.key.trim()) continue;
     const key = row.key.trim();
+    let value;
     if (row.type === 'file' && row.fileMeta?.__url__) {
-      entries.push([key, { __file_url__: true, url: row.fileMeta.url, name: key }]);
+      value = { __file_url__: true, url: row.fileMeta.url, name: key };
     } else if (row.type === 'file' && row.fileMeta) {
-      entries.push([key, { __file__: true, name: row.fileMeta.name, mimeType: row.fileMeta.mimeType, data: row.fileMeta.data }]);
+      value = { __file__: true, name: row.fileMeta.name, mimeType: row.fileMeta.mimeType, data: row.fileMeta.data };
     } else {
-      entries.push([key, row.value]);
+      value = row.value;
+    }
+    if (row.enabled === false) {
+      entries.push([key, { __disabled__: true, value }]);
+    } else {
+      entries.push([key, value]);
     }
   }
   return entries;

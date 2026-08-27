@@ -34,6 +34,18 @@ function activeHeaders(headers) {
   return out;
 }
 
+// Same idea as activeHeaders above, for a form-data body's own array-of-
+// tuples shape (see FormDataEditor.jsx's formRowsToBody) — filtered out
+// here, before resolveDeep/resolveFileUrls, so a disabled row's file (if
+// any) is never even fetched, not just excluded later in buildRequestBody.
+// Only form-data bodies are ever this array-of-tuples shape with our own
+// __disabled__ marker inside — a JSON body_template passes through
+// untouched.
+function activeBodyEntries(body, bodyType) {
+  if (bodyType !== 'form-data' || !Array.isArray(body)) return body;
+  return body.filter(([, v]) => !(v && typeof v === 'object' && v.__disabled__));
+}
+
 // Only retry when the request never got a response at all (connection-level
 // hiccups) — never retry a completed response, even a 5xx, since that's a
 // real result to capture rather than a transient failure to hide.
@@ -210,7 +222,13 @@ function collectDeepValues(node, key, out = []) {
  */
 function buildRequestBody(body, bodyType, headers) {
   if (bodyType === 'form-data' && body && typeof body === 'object') {
-    const entries = Array.isArray(body) ? body : Object.entries(body);
+    const rawEntries = Array.isArray(body) ? body : Object.entries(body);
+    // A row unchecked in the editor is saved as [key, { __disabled__: true,
+    // value }] instead of being dropped (see FormDataEditor.jsx's
+    // formRowsToBody) so it survives a save/reload as a disabled row —
+    // strip those here so they're excluded from what's actually sent, same
+    // as activeHeaders() does for a disabled header.
+    const entries = rawEntries.filter(([, v]) => !(v && typeof v === 'object' && v.__disabled__));
     const hasFile = entries.some(([, v]) => v && typeof v === 'object' && v.__file__);
 
     if (hasFile) {
@@ -458,7 +476,8 @@ async function runStep(step, baseVariables, flow, authCredentials, previousSchem
   if (authKey && typeof headers[authKey] === 'string' && headers[authKey].trim() && !/^[a-z]+\s/i.test(headers[authKey].trim())) {
     headers[authKey] = `Bearer ${headers[authKey].trim()}`;
   }
-  const resolvedBody = step.body_template != null ? resolveDeep(step.body_template, variables) : undefined;
+  const bodyTemplate = activeBodyEntries(step.body_template, step.body_type);
+  const resolvedBody = bodyTemplate != null ? resolveDeep(bodyTemplate, variables) : undefined;
 
   const start = Date.now();
   let stepResult;
