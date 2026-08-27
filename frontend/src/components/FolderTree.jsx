@@ -15,14 +15,27 @@ export default function FolderTree({
   // the selected one — e.g. Flows uses this to preview each flow's steps
   // inline instead of requiring a click into the editor.
   renderExpanded,
+  // Optional: a localStorage key to remember which folders are collapsed
+  // across reloads/navigation. Omit to keep the toggle session-only (resets
+  // on remount) — every current caller passes one.
+  storageKey,
 }) {
   const [addingUnder, setAddingUnder] = useState(null); // null | 'root' | folderId
   const [newName, setNewName] = useState('');
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
-  // Folder ids whose subfolders are hidden — starts empty so every group is
-  // expanded by default, same as before this toggle existed.
-  const [collapsedIds, setCollapsedIds] = useState(() => new Set());
+  // Folder ids whose subfolders are hidden — starts empty (fully expanded,
+  // same as before this toggle existed) unless a previous collapse was
+  // persisted under storageKey.
+  const [collapsedIds, setCollapsedIds] = useState(() => {
+    if (!storageKey) return new Set();
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
 
   const childrenOf = (parentId) => folders.filter((f) => (f.parent_id ?? null) === parentId);
 
@@ -31,6 +44,9 @@ export default function FolderTree({
       const next = new Set(prev);
       if (next.has(folderId)) next.delete(folderId);
       else next.add(folderId);
+      if (storageKey) {
+        try { localStorage.setItem(storageKey, JSON.stringify([...next])); } catch { /* ignore quota/private-mode errors */ }
+      }
       return next;
     });
   };

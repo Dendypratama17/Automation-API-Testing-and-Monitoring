@@ -1732,6 +1732,7 @@ export default function Flows() {
             onCreateFolder={handleCreateFolder}
             onDeleteFolder={handleDeleteFolder}
             onRenameFolder={handleRenameFolder}
+            storageKey="qa-tool:flows-collapsed-folders"
             allLabel="All Flows"
           />
         </div>

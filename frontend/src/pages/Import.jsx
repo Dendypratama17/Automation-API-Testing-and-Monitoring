@@ -255,6 +255,7 @@ export default function Import() {
               onCreateFolder={handleCreateFolder}
               onDeleteFolder={handleDeleteFolder}
               onRenameFolder={handleRenameFolder}
+              storageKey="qa-tool:config-collapsed-folders"
               allLabel="All"
               noneLabel="No Folder"
             />

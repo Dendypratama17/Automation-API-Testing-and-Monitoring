@@ -453,6 +453,7 @@ export default function Endpoints() {
             onCreateFolder={handleCreateFolder}
             onDeleteFolder={handleDeleteFolder}
             onRenameFolder={handleRenameFolder}
+            storageKey="qa-tool:config-collapsed-folders"
             allLabel="All Endpoints"
           />
         </div>

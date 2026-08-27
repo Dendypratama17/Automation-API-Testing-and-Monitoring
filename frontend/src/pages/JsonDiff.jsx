@@ -450,6 +450,11 @@ export default function JsonDiff() {
       </div>
 
       <div className="toolbar">
+        {loadedId && (
+          <span className="badge neutral" style={{ fontSize: 12.5 }} title="Currently loaded saved comparison">
+            {saveName || `Comparison #${loadedId}`}
+          </span>
+        )}
         {locked ? (
           <button onClick={handleUnlock}>Edit</button>
         ) : (
@@ -554,6 +559,7 @@ export default function JsonDiff() {
             onCreateFolder={handleCreateFolder}
             onDeleteFolder={handleDeleteFolder}
             onRenameFolder={handleRenameFolder}
+            storageKey="qa-tool:json-diff-collapsed-folders"
             allLabel="All Comparisons"
           />
         </div>
