@@ -579,7 +579,7 @@ tbody td:last-child, thead th:last-child { padding-right: 20px; }
 .tree-item button { padding: 2px 6px; font-size: 11px; }
 .tree-toggle {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 20px; height: 20px; padding: 0; flex-shrink: 0;
+  width: 25px; height: 25px; padding: 0; flex-shrink: 0;
   color: inherit; background: none; border: none; border-radius: 4px;
 }
 .tree-toggle:hover { background: var(--surface-3); }
