@@ -106,7 +106,7 @@ export default function FolderTree({
                     title={isCollapsed ? 'Expand' : 'Collapse'}
                     onClick={(e) => { e.stopPropagation(); toggleCollapsed(folder.id); }}
                   >
-                    <ChevronIcon style={{ width: 11, height: 11, transform: isCollapsed ? 'none' : 'rotate(90deg)' }} />
+                    <ChevronIcon style={{ width: 15, height: 15, transform: isCollapsed ? 'none' : 'rotate(90deg)' }} />
                   </button>
                 ) : (
                   <span className="tree-toggle-spacer" />
