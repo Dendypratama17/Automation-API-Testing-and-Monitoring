@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { describeAssertionParts } from './assertionDescriptions.js';
+import { stringifyBodyForDisplay } from './tupleBodyDisplay.js';
 
 // Filesystem-safe stand-in for a flow's name — so a downloaded/shared file
 // reads as e.g. "flow-run-Checkout-Top-up-EA-Enterprise-Active-1356.pdf"
@@ -275,8 +276,8 @@ function createReportContext(doc) {
         }
       }
 
-      if (step.request_body != null) drawCodeBlock('Request Body', JSON.stringify(sanitizeBody(step.request_body), null, 2));
-      if (step.response_body != null) drawCodeBlock('Response Body', JSON.stringify(sanitizeBody(step.response_body), null, 2));
+      if (step.request_body != null) drawCodeBlock('Request Body', stringifyBodyForDisplay(sanitizeBody(step.request_body), 0, true));
+      if (step.response_body != null) drawCodeBlock('Response Body', stringifyBodyForDisplay(sanitizeBody(step.response_body), 0, false));
 
       if (idx < stepList.length - 1) {
         ensureSpace(20);

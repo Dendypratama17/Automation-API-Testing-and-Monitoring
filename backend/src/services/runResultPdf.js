@@ -32,6 +32,52 @@ function sanitizeBody(body) {
   return body;
 }
 
+// Backend port of frontend/src/utils/tupleBodyDisplay.js — same reasoning:
+// a form-data body is an array of [key, value] tuples (see
+// FormDataEditor.jsx's formRowsToBody), and plain JSON.stringify renders
+// that as literal nested arrays instead of the compact object-like text the
+// in-app viewer (JsonBlock.jsx) shows. Kept in sync by hand, same as the
+// rest of this file's relationship to exportRunResultPdf.js.
+function containsFileMarker(value) {
+  if (Array.isArray(value)) return value.some(containsFileMarker);
+  if (value && typeof value === 'object') {
+    if (value.__file__ || value.__file_url__) return true;
+    return Object.values(value).some(containsFileMarker);
+  }
+  return false;
+}
+
+function isTupleShaped(value) {
+  return Array.isArray(value) && value.length > 0
+    && value.every((el) => Array.isArray(el) && el.length === 2 && typeof el[0] === 'string');
+}
+
+function isTupleArray(value, loose) {
+  if (!isTupleShaped(value)) return false;
+  return loose || value.some(([, v]) => containsFileMarker(v));
+}
+
+function stringifyBodyForDisplay(value, indent = 0, loose = false) {
+  const pad = '  '.repeat(indent);
+  const childPad = '  '.repeat(indent + 1);
+  if (isTupleArray(value, loose)) {
+    const lines = value.map(([k, v]) => `${childPad}${JSON.stringify(k)}: ${stringifyBodyForDisplay(v, indent + 1, loose)}`);
+    return `{\n${lines.join(',\n')}\n${pad}}`;
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]';
+    const lines = value.map((v) => `${childPad}${stringifyBodyForDisplay(v, indent + 1, loose)}`);
+    return `[\n${lines.join(',\n')}\n${pad}]`;
+  }
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value);
+    if (keys.length === 0) return '{}';
+    const lines = keys.map((k) => `${childPad}${JSON.stringify(k)}: ${stringifyBodyForDisplay(value[k], indent + 1, loose)}`);
+    return `{\n${lines.join(',\n')}\n${pad}}`;
+  }
+  return JSON.stringify(value);
+}
+
 const STATUS_COLORS = {
   PASS: [22, 163, 74],
   FAIL: [220, 38, 38],
@@ -231,8 +277,8 @@ function buildRunResultPdf(flowRun) {
       }
     }
 
-    if (step.request_body != null) drawCodeBlock('Request Body', JSON.stringify(sanitizeBody(step.request_body), null, 2));
-    if (step.response_body != null) drawCodeBlock('Response Body', JSON.stringify(sanitizeBody(step.response_body), null, 2));
+    if (step.request_body != null) drawCodeBlock('Request Body', stringifyBodyForDisplay(sanitizeBody(step.request_body), 0, true));
+    if (step.response_body != null) drawCodeBlock('Response Body', stringifyBodyForDisplay(sanitizeBody(step.response_body), 0, false));
 
     if (idx < steps.length - 1) {
       ensureSpace(20);

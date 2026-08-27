@@ -4,73 +4,7 @@ import { CopyIcon, JsonDiffIcon } from './icons.jsx';
 import { useToast } from './ToastProvider.jsx';
 import OptionsMenu from './OptionsMenu.jsx';
 import { writeJsonDiffDraft } from '../utils/jsonDiffDraft.js';
-
-// A form-data request body is an array of [key, value] tuples rather than
-// a plain {key: value} object — the only shape that can hold a repeated
-// key (e.g. two separate "documents" file parts in one upload) without one
-// silently overwriting the other (see FormDataEditor.jsx's formRowsToBody).
-// Plain `JSON.stringify` renders that literally as nested arrays —
-// `[\n  "key",\n  value\n],\n` per entry — which is technically correct but
-// reads far more spaced-out than the old flat-object body ever did. This
-// walks the same structure but renders a tuple array looking like a plain
-// object (one "key": value line per entry, duplicates included) purely for
-// this read-only display — real JSON.stringify still handles everything
-// else (nested objects/arrays/primitives) exactly as before.
-// A real API response can legitimately BE an array of 2-element string
-// tuples (e.g. `[["us","United States"],["ca","Canada"]]`) — structure
-// alone can't tell that apart from our own form-data body shape, and
-// JsonBlock renders both Request AND Response bodies, so guessing wrong
-// would silently corrupt what a real response looks like (including what
-// gets copied/sent to JSON Diff). Requiring an actual `__file__`/
-// `__file_url__` marker somewhere inside removes that ambiguity — no
-// unrelated API response would ever happen to contain one of our internal
-// markers, and it's exactly what's present in every real case this
-// compacting was built for (a form-data body with an attached file).
-//
-// Callers that KNOW the value is a request body they built themselves (not
-// a response from some external API) can pass `formData` to widen this to
-// ANY tuple-shaped array, file attached or not — safe there because the
-// tuple shape only ever comes from our own form-data body construction,
-// never from whatever an API happens to send back.
-function containsFileMarker(value) {
-  if (Array.isArray(value)) return value.some(containsFileMarker);
-  if (value && typeof value === 'object') {
-    if (value.__file__ || value.__file_url__) return true;
-    return Object.values(value).some(containsFileMarker);
-  }
-  return false;
-}
-
-function isTupleShaped(value) {
-  return Array.isArray(value) && value.length > 0
-    && value.every((el) => Array.isArray(el) && el.length === 2 && typeof el[0] === 'string');
-}
-
-function isTupleArray(value, loose) {
-  if (!isTupleShaped(value)) return false;
-  return loose || value.some(([, v]) => containsFileMarker(v));
-}
-
-function stringifyForDisplay(value, indent, loose) {
-  const pad = '  '.repeat(indent);
-  const childPad = '  '.repeat(indent + 1);
-  if (isTupleArray(value, loose)) {
-    const lines = value.map(([k, v]) => `${childPad}${JSON.stringify(k)}: ${stringifyForDisplay(v, indent + 1, loose)}`);
-    return `{\n${lines.join(',\n')}\n${pad}}`;
-  }
-  if (Array.isArray(value)) {
-    if (value.length === 0) return '[]';
-    const lines = value.map((v) => `${childPad}${stringifyForDisplay(v, indent + 1, loose)}`);
-    return `[\n${lines.join(',\n')}\n${pad}]`;
-  }
-  if (value && typeof value === 'object') {
-    const keys = Object.keys(value);
-    if (keys.length === 0) return '{}';
-    const lines = keys.map((k) => `${childPad}${JSON.stringify(k)}: ${stringifyForDisplay(value[k], indent + 1, loose)}`);
-    return `{\n${lines.join(',\n')}\n${pad}}`;
-  }
-  return JSON.stringify(value);
-}
+import { isTupleArray, stringifyBodyForDisplay as stringifyForDisplay } from '../utils/tupleBodyDisplay.js';
 
 // One row per form field, closer to what FormDataEditor itself shows while
 // building the step — a file marker becomes an icon + filename instead of
