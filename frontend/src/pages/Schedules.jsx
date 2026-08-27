@@ -592,7 +592,7 @@ export default function Schedules() {
                               {step.request_body != null && (
                                 <>
                                   <span className="field-label">Request Body</span>
-                                  <JsonBlock value={unwrapJsonStrings(step.request_body)} />
+                                  <JsonBlock value={unwrapJsonStrings(step.request_body)} formData />
                                 </>
                               )}
                             </div>

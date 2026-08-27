@@ -266,7 +266,7 @@ function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, runInfo
           </div>
           <div>
             <span className="field-label">Request Body</span>
-            <JsonBlock value={unwrapJsonStrings(selectedRow.request_body ?? detail.endpoint.body_template)} />
+            <JsonBlock value={unwrapJsonStrings(selectedRow.request_body ?? detail.endpoint.body_template)} formData />
           </div>
         </div>
         <div style={{ minWidth: 0 }}>

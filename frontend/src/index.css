@@ -753,6 +753,21 @@ input.step-flag-chip-input:focus { border-bottom-color: var(--accent); box-shado
   overflow: auto;
   box-sizing: border-box;
 }
+.json-block-view-toggle { display: flex; gap: 4px; margin-bottom: 6px; }
+.json-block-view-btn {
+  font-size: 11px; font-weight: 600; padding: 3px 10px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px;
+  color: var(--text-muted);
+}
+.json-block-view-btn.active { background: var(--accent-soft); border-color: var(--accent); color: #c7c5ff; }
+.form-data-view { display: flex; flex-direction: column; gap: 0; padding: 4px 14px; }
+.form-data-view-row {
+  display: flex; gap: 14px; padding: 7px 0; border-bottom: 1px solid var(--border-soft);
+  font-size: 12px; font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+}
+.form-data-view-row:last-child { border-bottom: none; }
+.form-data-view-key { flex: 0 0 220px; color: #a7b0ff; word-break: break-all; }
+.form-data-view-value { flex: 1; min-width: 0; color: #b9c0d4; white-space: pre-wrap; word-break: break-word; }
 .field-label { display: block; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); margin-bottom: 6px; }
 details > summary.field-label { display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none; }
 details > summary.field-label::-webkit-details-marker { display: none; }

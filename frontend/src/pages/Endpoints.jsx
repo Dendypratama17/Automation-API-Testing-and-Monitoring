@@ -548,7 +548,7 @@ export default function Endpoints() {
               {viewing.body_template != null && Object.keys(viewing.body_template).length > 0 && (
                 <div style={{ marginTop: 16 }}>
                   <span className="field-label">Body ({viewing.body_type || 'json'})</span>
-                  <JsonBlock value={viewing.body_template} />
+                  <JsonBlock value={viewing.body_template} formData={viewing.body_type === 'form-data'} />
                 </div>
               )}
             </div>

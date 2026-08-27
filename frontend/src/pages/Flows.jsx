@@ -227,7 +227,7 @@ function StepResultRow({ step, isLast }) {
             {step.request_body != null && (
               <>
                 <span className="field-label">Request Body</span>
-                <JsonBlock value={unwrapJsonStrings(step.request_body)} />
+                <JsonBlock value={unwrapJsonStrings(step.request_body)} formData />
               </>
             )}
           </div>
@@ -1973,7 +1973,7 @@ export default function Flows() {
                     {s.body_template != null && Object.keys(s.body_template).length > 0 && (
                       <div style={{ marginTop: 14, marginLeft: 32 }}>
                         <span className="field-label">Body ({s.body_type || 'json'})</span>
-                        <JsonBlock value={s.body_template} />
+                        <JsonBlock value={s.body_template} formData={s.body_type === 'form-data'} />
                       </div>
                     )}
 
