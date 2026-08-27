@@ -577,6 +577,13 @@ tbody td:last-child, thead th:last-child { padding-right: 20px; }
 .tree-item:hover { background: var(--surface-2); }
 .tree-item.active { background: var(--accent-soft); color: #c7c5ff; font-weight: 600; }
 .tree-item button { padding: 2px 6px; font-size: 11px; }
+.tree-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; padding: 0; flex-shrink: 0;
+  color: inherit; background: none; border: none; border-radius: 3px;
+}
+.tree-toggle:hover { background: var(--surface-3); }
+.tree-toggle-spacer { display: inline-block; width: 16px; flex-shrink: 0; }
 
 /* FolderPillPicker / BulkSelectDropdown grouping — folder or environment
    tabs laid out horizontally, the items under whichever tab is active

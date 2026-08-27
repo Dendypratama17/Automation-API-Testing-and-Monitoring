@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import OptionsMenu from './OptionsMenu.jsx';
-import { EditIcon, TrashIcon, FolderPlusIcon } from './icons.jsx';
+import { EditIcon, TrashIcon, FolderPlusIcon, ChevronIcon } from './icons.jsx';
 
 /**
  * Recursive folder tree (supports folders nested inside folders via
@@ -20,8 +20,20 @@ export default function FolderTree({
   const [newName, setNewName] = useState('');
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
+  // Folder ids whose subfolders are hidden — starts empty so every group is
+  // expanded by default, same as before this toggle existed.
+  const [collapsedIds, setCollapsedIds] = useState(() => new Set());
 
   const childrenOf = (parentId) => folders.filter((f) => (f.parent_id ?? null) === parentId);
+
+  const toggleCollapsed = (folderId) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  };
 
   const startAdding = (parentId) => {
     setAddingUnder(parentId);
@@ -63,7 +75,9 @@ export default function FolderTree({
 
   const renderNode = (folder, depth) => {
     const kids = childrenOf(folder.id);
+    const hasKids = kids.length > 0;
     const isSelected = selectedFolderId === folder.id;
+    const isCollapsed = collapsedIds.has(folder.id);
     return (
       <li key={folder.id}>
         <div className={`tree-item${isSelected ? ' active' : ''}`} style={{ paddingLeft: 8 + depth * 16 }}>
@@ -84,7 +98,21 @@ export default function FolderTree({
             </>
           ) : (
             <>
-              <span onClick={() => { if (!isSelected) onSelect(folder.id); }} style={{ flex: 1 }}>📁 {folder.name}</span>
+              <span onClick={() => { if (!isSelected) onSelect(folder.id); }} style={{ flex: 1, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                {hasKids ? (
+                  <button
+                    type="button"
+                    className="tree-toggle"
+                    title={isCollapsed ? 'Expand' : 'Collapse'}
+                    onClick={(e) => { e.stopPropagation(); toggleCollapsed(folder.id); }}
+                  >
+                    <ChevronIcon style={{ width: 11, height: 11, transform: isCollapsed ? 'none' : 'rotate(90deg)' }} />
+                  </button>
+                ) : (
+                  <span className="tree-toggle-spacer" />
+                )}
+                📁 {folder.name}
+              </span>
               <OptionsMenu
                 items={[
                   { label: 'Rename', icon: <EditIcon />, onClick: () => startRename(folder) },
@@ -101,7 +129,7 @@ export default function FolderTree({
           </div>
         )}
         {addingUnder === folder.id && <div style={{ paddingLeft: 8 + (depth + 1) * 16, marginTop: 4 }}>{renderAddInput(folder.id)}</div>}
-        {kids.length > 0 && (
+        {hasKids && !isCollapsed && (
           <ul className="tree-list" style={{ margin: 0 }}>
             {kids.map((child) => renderNode(child, depth + 1))}
           </ul>
