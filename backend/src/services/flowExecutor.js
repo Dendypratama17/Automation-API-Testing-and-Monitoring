@@ -251,9 +251,19 @@ function buildRequestBody(body, bodyType, headers) {
 
     const params = new URLSearchParams();
     for (const [key, value] of entries) params.append(key, value == null ? '' : String(value));
-    if (!Object.keys(headers).some((h) => h.toLowerCase() === 'content-type')) {
-      headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    // Same reasoning as the FormData branch above: a step imported from a
+    // curl capture that itself used real multipart (boundary and all) keeps
+    // that literal Content-Type in its saved headers — if this step's body
+    // no longer has a file field (e.g. edited to reference an already-
+    // uploaded file's id instead), leaving that stale multipart/boundary
+    // header in place would send a URL-encoded body under a Content-Type
+    // that claims it's multipart, which no server can parse correctly.
+    // Always overwrite it with the Content-Type that actually matches what
+    // was just built, never just fill it in when absent.
+    for (const h of Object.keys(headers)) {
+      if (h.toLowerCase() === 'content-type') delete headers[h];
     }
+    headers['Content-Type'] = 'application/x-www-form-urlencoded';
     return params.toString();
   }
   return body;
