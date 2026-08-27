@@ -211,14 +211,18 @@ function collectDeepValues(node, key, out = []) {
  * File fields carry { __file__: true, name, mimeType, data (base64) }
  * instead of a plain string, whichever shape holds them.
  *
- * - No file fields: axios would otherwise JSON.stringify a plain object
- *   regardless of Content-Type, so encode it ourselves as
- *   application/x-www-form-urlencoded.
- * - Any file field: build a real multipart/form-data body (native FormData +
- *   Blob, available in Node 18+) so uploads are actually replayed as files,
- *   not just a JSON string of the path. FormData.append naturally supports
- *   calling it more than once with the same key, so a repeated key in the
- *   tuple array becomes two real parts, exactly like a real browser upload.
+ * - No file fields (and nothing already saying otherwise): axios would
+ *   otherwise JSON.stringify a plain object regardless of Content-Type, so
+ *   encode it ourselves as application/x-www-form-urlencoded.
+ * - Any file field, OR the step's own headers already declare a real
+ *   multipart Content-Type (e.g. imported from a curl capture that used
+ *   multipart/boundary even though none of its fields happen to be files —
+ *   some APIs strictly require that encoding for anything hitting a
+ *   multipart endpoint): build a real multipart/form-data body (native
+ *   FormData + Blob, available in Node 18+) so it's replayed exactly as
+ *   captured. FormData.append naturally supports calling it more than once
+ *   with the same key, so a repeated key in the tuple array becomes two
+ *   real parts, exactly like a real browser upload.
  */
 function buildRequestBody(body, bodyType, headers) {
   if (bodyType === 'form-data' && body && typeof body === 'object') {
@@ -230,8 +234,10 @@ function buildRequestBody(body, bodyType, headers) {
     // as activeHeaders() does for a disabled header.
     const entries = rawEntries.filter(([, v]) => !(v && typeof v === 'object' && v.__disabled__));
     const hasFile = entries.some(([, v]) => v && typeof v === 'object' && v.__file__);
+    const existingContentType = Object.entries(headers).find(([h]) => h.toLowerCase() === 'content-type')?.[1];
+    const declaresMultipart = typeof existingContentType === 'string' && /multipart\/form-data/i.test(existingContentType);
 
-    if (hasFile) {
+    if (hasFile || declaresMultipart) {
       const form = new FormData();
       for (const [key, value] of entries) {
         if (value && typeof value === 'object' && value.__file__) {
