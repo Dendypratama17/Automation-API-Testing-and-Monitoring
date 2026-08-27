@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { getTestFiles, createTestFile, updateTestFile, deleteTestFile, reorderTestFiles } from '../api/client';
-import { TrashIcon, GripIcon, EditIcon } from '../components/icons.jsx';
+import { getTestFiles, getTestFile, createTestFile, updateTestFile, deleteTestFile, reorderTestFiles } from '../api/client';
+import { TrashIcon, GripIcon, EditIcon, EyeIcon } from '../components/icons.jsx';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
 import FilePicker from '../components/FilePicker.jsx';
 import OptionsMenu from '../components/OptionsMenu.jsx';
@@ -101,6 +101,38 @@ export default function TestFiles() {
       load();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
+    }
+  };
+
+  const [previewingId, setPreviewingId] = useState(null);
+
+  const handlePreview = async (f) => {
+    // Open the tab synchronously (before the await below) so it's still
+    // tied to this click's user gesture — opening it only after the fetch
+    // resolves gets silently blocked as a popup by most browsers.
+    const win = window.open('', '_blank');
+    setPreviewingId(f.id);
+    setError('');
+    try {
+      const full = await getTestFile(f.id);
+      const byteChars = atob(full.data);
+      const bytes = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([bytes], { type: full.mime_type || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      if (win) {
+        win.location.href = url;
+      } else {
+        showToast('Preview tab was blocked by the browser — allow pop-ups for this site and try again.', 'error');
+      }
+      // Revoked well after the new tab has had time to load the blob — the
+      // URL only needs to live long enough for that one navigation.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      if (win) win.close();
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setPreviewingId(null);
     }
   };
 
@@ -225,7 +257,12 @@ export default function TestFiles() {
                       <button className="btn-quiet" onClick={cancelRename}>✕</button>
                     </div>
                   ) : (
-                    <span className="truncate" style={{ maxWidth: '100%' }} title={f.file_name}>
+                    <span
+                      className="truncate"
+                      style={{ maxWidth: '100%', cursor: 'pointer' }}
+                      title={`${f.file_name} — click to preview`}
+                      onClick={() => handlePreview(f)}
+                    >
                       {f.file_name}
                     </span>
                   )}
@@ -236,6 +273,7 @@ export default function TestFiles() {
                   <span className="row-actions-inner">
                     <OptionsMenu
                       items={[
+                        { label: previewingId === f.id ? 'Opening...' : 'Preview', icon: <EyeIcon />, onClick: () => handlePreview(f), disabled: previewingId === f.id },
                         { label: 'Edit', icon: <EditIcon />, onClick: () => startRename(f) },
                         { label: 'Delete', icon: <TrashIcon />, onClick: () => handleDelete(f), danger: true },
                       ]}
