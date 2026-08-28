@@ -47,18 +47,29 @@ function activeBodyEntries(body, bodyType) {
 }
 
 // A step hitting a "download the actual file" endpoint (e.g. the signed PDF
-// itself) gets back raw binary bytes as response.data — nothing here ever
-// sets axios's responseType to arraybuffer for a normal step, so it's
-// decoded as a plain string, which can end up containing a literal NUL byte
-// or other invalid UTF-16. Postgres's jsonb column flatly refuses to store
-// a NUL byte ("unsupported Unicode escape sequence"), which previously
-// crashed the run's persistence — the whole request came back as a 500
-// instead of a saved result. A body-path assertion or schema diff against
-// mangled binary text would also be meaningless anyway. Detect it from the
-// response's own declared Content-Type and swap it for a small, safe
-// placeholder before assertions, schema generation, or storage ever touch
-// it — status code and header assertions are unaffected.
+// itself) gets back raw binary bytes as response.data — by default nothing
+// here sets axios's responseType to arraybuffer, so it's decoded as a plain
+// string, which can end up containing a literal NUL byte or other invalid
+// UTF-16. Postgres's jsonb column flatly refuses to store a NUL byte
+// ("unsupported Unicode escape sequence"), which previously crashed the
+// run's persistence — the whole request came back as a 500 instead of a
+// saved result. A body-path assertion or schema diff against mangled binary
+// text would also be meaningless anyway. Detect it from the response's own
+// declared Content-Type and swap it for a small, safe placeholder before
+// assertions, schema generation, or storage ever touch it — status code and
+// header assertions are unaffected.
+//
+// `raw` is a real Buffer instead of a mangled string when the step opted
+// into `response_type: 'base64'` (see runStep — axios was told
+// responseType: 'arraybuffer' up front for exactly this reason) — in that
+// case the actual bytes are preserved and base64-encoded into the
+// placeholder's `data` field, safe for jsonb (base64 never contains a NUL
+// byte) and usable afterward for a preview/download (see JsonBlock.jsx).
+// Without that opt-in, only the size and content type survive.
 function sanitizeBinaryResponseData(data, contentType) {
+  if (Buffer.isBuffer(data)) {
+    return { __binary_response__: true, content_type: contentType || null, approx_bytes: data.length, data: data.toString('base64') };
+  }
   if (typeof data !== 'string') return data;
   const ct = (contentType || '').toLowerCase();
   const looksTextual = !ct || ct.startsWith('text/') || ct.includes('json') || ct.includes('xml')
@@ -526,6 +537,11 @@ async function runStep(step, baseVariables, flow, authCredentials, previousSchem
     // instead of crashing the whole flow run.
     const bodyWithFiles = resolvedBody != null ? await resolveFileUrls(resolvedBody) : resolvedBody;
     const body = buildRequestBody(bodyWithFiles, step.body_type, headers);
+    // 'base64' opts this step into fetching its response as raw bytes
+    // (arraybuffer) instead of letting axios decode it as text/JSON — the
+    // only way to get the real content of a binary response (a downloaded
+    // PDF, a ZIP, ...) back out intact instead of a size-only placeholder.
+    const wantsBinaryResponse = step.response_type === 'base64';
     let response = await requestWithRetry({
       method: step.method,
       url,
@@ -534,6 +550,7 @@ async function runStep(step, baseVariables, flow, authCredentials, previousSchem
       validateStatus: () => true,
       timeout: 15000,
       signal: getAbortSignal(runToken),
+      ...(wantsBinaryResponse ? { responseType: 'arraybuffer' } : {}),
     }, step.name);
 
     // A cached Web Login token can get revoked by the server earlier than
@@ -560,6 +577,7 @@ async function runStep(step, baseVariables, flow, authCredentials, previousSchem
           validateStatus: () => true,
           timeout: 15000,
           signal: getAbortSignal(runToken),
+          ...(wantsBinaryResponse ? { responseType: 'arraybuffer' } : {}),
         }, step.name);
       } catch (reloginErr) {
         console.error(`[flowExecutor] Re-login after 401 for "${credForAuth.name}" failed: ${reloginErr.message}`);

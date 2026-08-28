@@ -159,6 +159,14 @@ ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS parallel_with_previous BOOLEAN N
 -- being sent (see flowExecutor.js). Forces its own batch (never
 -- parallel_with_previous) since it needs that step's real outcome first.
 ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS run_condition_status_code INT;
+-- 'auto' (default): a non-JSON/text response (e.g. a file download) is
+-- replaced with a size-only placeholder before storage — actual binary
+-- bytes decoded as a JS string can contain NUL characters, which Postgres's
+-- jsonb column flatly refuses to store. 'base64': fetch this step's
+-- response as raw bytes and keep the real content (base64-encoded, safe
+-- for jsonb) so it can be extracted/previewed — e.g. a step that downloads
+-- the actual signed PDF and needs to verify what came back.
+ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS response_type VARCHAR(20) NOT NULL DEFAULT 'auto';
 
 CREATE TABLE IF NOT EXISTS flow_runs (
   id SERIAL PRIMARY KEY,

@@ -6,6 +6,56 @@ import OptionsMenu from './OptionsMenu.jsx';
 import { writeJsonDiffDraft } from '../utils/jsonDiffDraft.js';
 import { isTupleArray, stringifyBodyForDisplay as stringifyForDisplay } from '../utils/tupleBodyDisplay.js';
 
+// A step's response that isn't JSON/text (a downloaded PDF, ZIP, ...) is
+// stored as this marker object — see flowExecutor.js's
+// sanitizeBinaryResponseData. `data` (base64) is only present when the step
+// opted into `response_type: 'base64'`; otherwise this is just a size/type
+// placeholder with nothing to preview.
+function isBinaryResponse(value) {
+  return !!(value && typeof value === 'object' && value.__binary_response__ === true);
+}
+
+function formatBytes(n) {
+  if (n == null) return 'unknown size';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function BinaryResponseView({ value }) {
+  const showToast = useToast();
+  const handlePreview = () => {
+    try {
+      const byteChars = atob(value.data);
+      const bytes = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([bytes], { type: value.content_type || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      // Revoked well after the new tab has had time to load the blob — the
+      // URL only needs to live long enough for that one navigation.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      showToast('Failed to open preview — the captured data looks corrupted.', 'error');
+    }
+  };
+
+  return (
+    <div className="json-block binary-response-view">
+      <div>📦 Binary response — {value.content_type || 'unknown type'} · {formatBytes(value.approx_bytes)}</div>
+      {value.data ? (
+        <button type="button" className="btn-quiet" style={{ marginTop: 8, border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px' }} onClick={handlePreview}>
+          Preview
+        </button>
+      ) : (
+        <p className="hint" style={{ marginTop: 6, fontSize: 12, marginBottom: 0 }}>
+          Only the size/type was captured. Set this step's "Response: Base64" option and run it again to preview the actual file.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // One row per form field, closer to what FormDataEditor itself shows while
 // building the step — a file marker becomes an icon + filename instead of
 // its raw {__file__: true, data: "...", ...} JSON shape.
@@ -33,7 +83,8 @@ export default function JsonBlock({ value, formData = false }) {
   const showToast = useToast();
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState('json');
-  const canShowForm = isTupleArray(value, formData);
+  const isBinary = isBinaryResponse(value);
+  const canShowForm = !isBinary && isTupleArray(value, formData);
   const text = stringifyForDisplay(value ?? {}, 0, formData);
 
   const handleCopy = () => {
@@ -74,25 +125,29 @@ export default function JsonBlock({ value, formData = false }) {
         </button>
       </div>
       <div style={{ position: 'relative' }}>
-        <div className="json-block-copy" style={{ display: 'flex', gap: 2 }}>
-          <button
-            className="btn-icon"
-            onClick={handleCopy}
-            title="Copy to clipboard"
-            aria-label="Copy to clipboard"
-          >
-            <CopyIcon />
-          </button>
-          <OptionsMenu
-            icon={<JsonDiffIcon />}
-            title="Send to JSON Diff"
-            items={[
-              { label: 'Send as JSON A', onClick: () => handleSendToDiff('A') },
-              { label: 'Send as JSON B', onClick: () => handleSendToDiff('B') },
-            ]}
-          />
-        </div>
-        {canShowForm && viewMode === 'form' ? <FormDataView rows={value} /> : <pre className="json-block">{text}</pre>}
+        {!isBinary && (
+          <div className="json-block-copy" style={{ display: 'flex', gap: 2 }}>
+            <button
+              className="btn-icon"
+              onClick={handleCopy}
+              title="Copy to clipboard"
+              aria-label="Copy to clipboard"
+            >
+              <CopyIcon />
+            </button>
+            <OptionsMenu
+              icon={<JsonDiffIcon />}
+              title="Send to JSON Diff"
+              items={[
+                { label: 'Send as JSON A', onClick: () => handleSendToDiff('A') },
+                { label: 'Send as JSON B', onClick: () => handleSendToDiff('B') },
+              ]}
+            />
+          </div>
+        )}
+        {isBinary
+          ? <BinaryResponseView value={value} />
+          : (canShowForm && viewMode === 'form' ? <FormDataView rows={value} /> : <pre className="json-block">{text}</pre>)}
       </div>
     </div>
   );

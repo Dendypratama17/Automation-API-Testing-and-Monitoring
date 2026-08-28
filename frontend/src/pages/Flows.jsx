@@ -332,6 +332,7 @@ const emptyStep = (defaultHeaders = []) => {
     name: '', endpoint_id: '', method: '', url_template: '', authCredentialId: '',
     headersRows,
     bodyType: 'json', bodyText: '', bodyRows: [emptyFormRow()],
+    responseType: 'auto',
     extractRows: [], assertionsRows: [], enabled: true, delayMs: '',
     parallelWithPrevious: false,
     runConditionStatusCode: '',
@@ -366,6 +367,7 @@ function stepToPayload(step, endpoints) {
     headers,
     body_template,
     body_type: step.bodyType,
+    response_type: step.responseType === 'base64' ? 'base64' : 'auto',
     extract,
     assertions,
     enabled: step.enabled !== false,
@@ -552,6 +554,7 @@ function stepFromApi(s) {
     bodyType: s.body_type || 'json',
     bodyText: s.body_template ? JSON.stringify(s.body_template, null, 2) : '',
     bodyRows: objectToFormRows(s.body_template),
+    responseType: s.response_type === 'base64' ? 'base64' : 'auto',
     extractRows: arrayToExtractRows(s.extract),
     assertionsRows: objectToAssertionRows(s.assertions),
     enabled: s.enabled !== false,
@@ -2283,6 +2286,19 @@ export default function Flows() {
                               className="step-flag-chip-input"
                             />
                             <span>s delay</span>
+                          </label>
+                        )}
+                        {(step.endpoint_id || step.url_template) && (
+                          <label
+                            className={`step-flag-chip${step.responseType === 'base64' ? ' active' : ''}`}
+                            title="Auto: a non-JSON/text response (e.g. a file download) is saved as a size-only placeholder. Base64: fetch the real response bytes so a downloaded file can be extracted/previewed instead of just a placeholder."
+                          >
+                            <input
+                              type="checkbox"
+                              checked={step.responseType === 'base64'}
+                              onChange={(e) => handleStepChange(idx, 'responseType', e.target.checked ? 'base64' : 'auto')}
+                            />
+                            Response: {step.responseType === 'base64' ? 'Base64' : 'Auto'}
                           </label>
                         )}
                         {idx > 0 && (
