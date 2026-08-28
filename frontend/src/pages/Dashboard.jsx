@@ -9,7 +9,7 @@ import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
 import { exportRunResultToPdf, getRunResultPdfBase64 } from '../utils/exportRunResultPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
 import OptionsMenu from '../components/OptionsMenu.jsx';
-import { DownloadIcon, SendIcon } from '../components/icons.jsx';
+import { DownloadIcon, SendIcon, XIcon } from '../components/icons.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
 
 // A generic, commonly-used API response-time guideline — not tied to any
@@ -331,17 +331,36 @@ export default function Dashboard() {
   const [runInfo, setRunInfo] = useState(null);
   const detailRef = useRef(null);
 
-  const [rangePreset, setRangePreset] = useState('7d');
-  const [customStart, setCustomStart] = useState('');
-  const [customEnd, setCustomEnd] = useState('');
+  // Remembers whichever period was last picked (across reloads and
+  // navigating away/back) instead of always resetting to "7 Days".
+  const [rangePreset, setRangePreset] = useState(() => localStorage.getItem('dashboard_range_preset') || '7d');
+  const [customStart, setCustomStart] = useState(() => localStorage.getItem('dashboard_range_custom_start') || '');
+  const [customEnd, setCustomEnd] = useState(() => localStorage.getItem('dashboard_range_custom_end') || '');
+  useEffect(() => {
+    localStorage.setItem('dashboard_range_preset', rangePreset);
+  }, [rangePreset]);
+  useEffect(() => {
+    localStorage.setItem('dashboard_range_custom_start', customStart);
+    localStorage.setItem('dashboard_range_custom_end', customEnd);
+  }, [customStart, customEnd]);
   // Remembers whichever environment was last picked (across reloads and
   // navigating away/back) instead of always resetting to "STG".
   const [envFilter, setEnvFilter] = useState(() => localStorage.getItem('dashboard_env_filter') || 'STG');
   useEffect(() => {
     localStorage.setItem('dashboard_env_filter', envFilter);
   }, [envFilter]);
-  const [resourceFilter, setResourceFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  // Remembers whichever search text was last typed (across reloads and
+  // navigating away/back) instead of always resetting to empty.
+  const [resourceFilter, setResourceFilter] = useState(() => localStorage.getItem('dashboard_resource_filter') || '');
+  useEffect(() => {
+    localStorage.setItem('dashboard_resource_filter', resourceFilter);
+  }, [resourceFilter]);
+  // Remembers whichever status was last picked (across reloads and
+  // navigating away/back) instead of always resetting to "All Statuses".
+  const [statusFilter, setStatusFilter] = useState(() => localStorage.getItem('dashboard_status_filter') || 'all');
+  useEffect(() => {
+    localStorage.setItem('dashboard_status_filter', statusFilter);
+  }, [statusFilter]);
   // Independent of the range/rangePreset filter above — always "today so
   // far," recomputed periodically so it naturally resets at local midnight
   // even if the tab is left open.
@@ -507,12 +526,26 @@ export default function Dashboard() {
             <option value="ok">OK</option>
             <option value="error">Error</option>
           </select>
-          <input
-            placeholder="Search ID, resource, or flow..."
-            value={resourceFilter}
-            onChange={(e) => setResourceFilter(e.target.value)}
-            style={{ width: 210 }}
-          />
+          <div style={{ position: 'relative', width: 210 }}>
+            <input
+              placeholder="Search ID, resource, or flow..."
+              value={resourceFilter}
+              onChange={(e) => setResourceFilter(e.target.value)}
+              style={{ width: '100%', paddingRight: resourceFilter ? 30 : undefined }}
+            />
+            {resourceFilter && (
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={() => setResourceFilter('')}
+                title="Clear search"
+                aria-label="Clear search"
+                style={{ position: 'absolute', top: '50%', right: 4, transform: 'translateY(-50%)', padding: 4 }}
+              >
+                <XIcon style={{ width: 13, height: 13 }} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
