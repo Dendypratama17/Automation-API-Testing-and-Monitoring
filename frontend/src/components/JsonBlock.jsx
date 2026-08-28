@@ -50,24 +50,29 @@ export default function JsonBlock({ value, formData = false }) {
 
   return (
     <div>
-      {canShowForm && (
-        <div className="json-block-view-toggle">
-          <button
-            type="button"
-            className={`json-block-view-btn${viewMode === 'json' ? ' active' : ''}`}
-            onClick={() => setViewMode('json')}
-          >
-            JSON
-          </button>
-          <button
-            type="button"
-            className={`json-block-view-btn${viewMode === 'form' ? ' active' : ''}`}
-            onClick={() => setViewMode('form')}
-          >
-            Form Data
-          </button>
-        </div>
-      )}
+      {/* Rendered (with the buttons merely hidden, not omitted) even when this
+          particular value has no Form Data view — Request/Response Body sit
+          side by side in a two-column grid, and only one side commonly has a
+          form-data body; omitting this row entirely on the other side would
+          leave its box starting higher than its sibling's. */}
+      <div className="json-block-view-toggle" style={canShowForm ? undefined : { visibility: 'hidden' }} aria-hidden={!canShowForm}>
+        <button
+          type="button"
+          className={`json-block-view-btn${viewMode === 'json' ? ' active' : ''}`}
+          onClick={() => setViewMode('json')}
+          tabIndex={canShowForm ? 0 : -1}
+        >
+          JSON
+        </button>
+        <button
+          type="button"
+          className={`json-block-view-btn${viewMode === 'form' ? ' active' : ''}`}
+          onClick={() => setViewMode('form')}
+          tabIndex={canShowForm ? 0 : -1}
+        >
+          Form Data
+        </button>
+      </div>
       <div style={{ position: 'relative' }}>
         <div className="json-block-copy" style={{ display: 'flex', gap: 2 }}>
           <button
