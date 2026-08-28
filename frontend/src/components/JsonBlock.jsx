@@ -22,6 +22,24 @@ function formatBytes(n) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// A download endpoint commonly declares a generic Content-Type
+// (application/octet-stream, or nothing useful) even when the bytes are
+// really a PDF/image the browser is perfectly able to render inline — a
+// Blob opened with that generic type gets force-downloaded instead of
+// previewed, since the browser has no way to know it's actually renderable.
+// Sniffing the real format from its magic-number header (the same trick
+// browsers/OSes themselves use for "detect file type") and overriding the
+// Blob's type with that is what makes `window.open` show it in Chrome's
+// native PDF/image viewer instead of triggering "Save As".
+function sniffMimeType(bytes, declaredType) {
+  const sig = (...expected) => expected.every((b, i) => bytes[i] === b);
+  if (sig(0x25, 0x50, 0x44, 0x46)) return 'application/pdf'; // %PDF
+  if (sig(0x89, 0x50, 0x4e, 0x47)) return 'image/png';
+  if (sig(0xff, 0xd8, 0xff)) return 'image/jpeg';
+  if (sig(0x47, 0x49, 0x46, 0x38)) return 'image/gif';
+  return declaredType || 'application/octet-stream';
+}
+
 function BinaryResponseView({ value }) {
   const showToast = useToast();
   const handlePreview = () => {
@@ -29,7 +47,7 @@ function BinaryResponseView({ value }) {
       const byteChars = atob(value.data);
       const bytes = new Uint8Array(byteChars.length);
       for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
-      const blob = new Blob([bytes], { type: value.content_type || 'application/octet-stream' });
+      const blob = new Blob([bytes], { type: sniffMimeType(bytes, value.content_type) });
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank');
       // Revoked well after the new tab has had time to load the blob — the
