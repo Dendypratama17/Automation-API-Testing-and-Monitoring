@@ -46,6 +46,27 @@ function activeBodyEntries(body, bodyType) {
   return body.filter(([, v]) => !(v && typeof v === 'object' && v.__disabled__));
 }
 
+// A step hitting a "download the actual file" endpoint (e.g. the signed PDF
+// itself) gets back raw binary bytes as response.data — nothing here ever
+// sets axios's responseType to arraybuffer for a normal step, so it's
+// decoded as a plain string, which can end up containing a literal NUL byte
+// or other invalid UTF-16. Postgres's jsonb column flatly refuses to store
+// a NUL byte ("unsupported Unicode escape sequence"), which previously
+// crashed the run's persistence — the whole request came back as a 500
+// instead of a saved result. A body-path assertion or schema diff against
+// mangled binary text would also be meaningless anyway. Detect it from the
+// response's own declared Content-Type and swap it for a small, safe
+// placeholder before assertions, schema generation, or storage ever touch
+// it — status code and header assertions are unaffected.
+function sanitizeBinaryResponseData(data, contentType) {
+  if (typeof data !== 'string') return data;
+  const ct = (contentType || '').toLowerCase();
+  const looksTextual = !ct || ct.startsWith('text/') || ct.includes('json') || ct.includes('xml')
+    || ct.includes('javascript') || ct.includes('yaml') || ct.includes('www-form-urlencoded');
+  if (looksTextual) return data;
+  return { __binary_response__: true, content_type: contentType || null, approx_bytes: Buffer.byteLength(data, 'utf8') };
+}
+
 // Only retry when the request never got a response at all (connection-level
 // hiccups) — never retry a completed response, even a 5xx, since that's a
 // real result to capture rather than a transient failure to hide.
@@ -546,6 +567,7 @@ async function runStep(step, baseVariables, flow, authCredentials, previousSchem
     }
 
     const responseTimeMs = Date.now() - start;
+    response.data = sanitizeBinaryResponseData(response.data, response.headers?.['content-type']);
 
     const newSchema = generateSchema(response.data);
     const previousSchema = step.endpoint_id ? previousSchemas[step.endpoint_id] : null;
