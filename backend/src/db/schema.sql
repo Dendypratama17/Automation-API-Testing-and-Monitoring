@@ -176,6 +176,13 @@ CREATE TABLE IF NOT EXISTS flow_runs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Dashboard's "Recent Hits" feed (last-flow-runs) sorts/filters by
+-- created_at across every run regardless of flow; a single flow's own run
+-- history (e.g. "last run" lookups) filters by flow_id then sorts by
+-- created_at — both were full-table scans without these.
+CREATE INDEX IF NOT EXISTS idx_flow_runs_created ON flow_runs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_flow_runs_flow ON flow_runs(flow_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS flow_run_steps (
   id SERIAL PRIMARY KEY,
   flow_run_id INT REFERENCES flow_runs(id) ON DELETE CASCADE,
