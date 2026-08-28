@@ -2291,14 +2291,14 @@ export default function Flows() {
                         {(step.endpoint_id || step.url_template) && (
                           <label
                             className={`step-flag-chip${step.responseType === 'base64' ? ' active' : ''}`}
-                            title="Auto: a non-JSON/text response (e.g. a file download) is saved as a size-only placeholder. Base64: fetch the real response bytes so a downloaded file can be extracted/previewed instead of just a placeholder."
+                            title="JSON: a non-JSON/text response (e.g. a file download) is saved as a size-only placeholder. Base64: fetch the real response bytes so a downloaded file can be extracted/previewed instead of just a placeholder."
                           >
                             <input
                               type="checkbox"
                               checked={step.responseType === 'base64'}
                               onChange={(e) => handleStepChange(idx, 'responseType', e.target.checked ? 'base64' : 'auto')}
                             />
-                            Response: {step.responseType === 'base64' ? 'Base64' : 'Auto'}
+                            Response: {step.responseType === 'base64' ? 'Base64' : 'JSON'}
                           </label>
                         )}
                         {idx > 0 && (
