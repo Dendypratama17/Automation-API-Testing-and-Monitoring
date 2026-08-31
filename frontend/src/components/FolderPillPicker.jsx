@@ -193,7 +193,7 @@ export default function FolderPillPicker({
               </div>
             )}
           </div>
-          <div style={{ overflowY: 'auto', flex: 1 }}>
+          <div style={{ overflowY: 'auto', flex: 1, overscrollBehavior: 'contain' }}>
             {orderedKeys.length === 0 ? (
               <div className="hint" style={{ padding: '8px 10px', fontSize: 12.5 }}>Nothing configured yet.</div>
             ) : searching ? (

@@ -524,7 +524,7 @@ function BulkSelectDropdown({ placeholder, options, onPick, renderOption, title,
                     </div>
                   )}
                 </div>
-                <div style={{ overflowY: 'auto', flex: 1 }}>
+                <div style={{ overflowY: 'auto', flex: 1, overscrollBehavior: 'contain' }}>
                   {options.length === 0 && <div className="hint" style={{ padding: '8px 10px', fontSize: 12.5 }}>Nothing configured yet.</div>}
                   {items.map((opt, i) => (
                     <button type="button" key={i} className="cred-select-item" onClick={() => { setOpen(false); onPick(opt); }}>

@@ -328,6 +328,7 @@ button.btn-danger-solid:hover { background: #f65f5f; border-color: #f65f5f; }
   max-width: 240px;
   max-height: 320px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
 }
@@ -364,6 +365,13 @@ button.btn-danger-solid:hover { background: #f65f5f; border-color: #f65f5f; }
   padding: 4px;
   max-height: 320px;
   overflow-y: auto;
+  /* Without this, wheel input that runs past the list's own scroll limit
+     (top or bottom) "chains" into scrolling whatever's behind this portal-
+     rendered popup — a real scroll on the page, which the popup's own
+     click-outside/scroll listener (correctly) treats as "user scrolled
+     away" and closes it. Contained, that leftover wheel input is simply
+     absorbed instead of leaking through. */
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
 }
