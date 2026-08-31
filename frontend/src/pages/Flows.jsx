@@ -860,6 +860,18 @@ export default function Flows() {
     setEditingFlow({ ...editingFlow, steps });
   };
 
+  // One button instead of clicking every step's checkbox individually —
+  // toggles based on the CURRENT overall state (all already checked ->
+  // uncheck everything; anything unchecked -> check everything), same
+  // "Select All / Unselect All" pattern as the View Flow panel's own
+  // handleToggleAllSteps below (this one only touches the in-progress edit
+  // form's local state — nothing is persisted until Save Flow).
+  const allStepsEnabled = editingFlow?.steps.every((s) => s.enabled !== false);
+  const handleToggleAllStepsEnabled = () => {
+    const nextEnabled = !allStepsEnabled;
+    setEditingFlow({ ...editingFlow, steps: editingFlow.steps.map((s) => ({ ...s, enabled: nextEnabled })) });
+  };
+
   // A run condition needs the previous step's REAL, already-finished result
   // to decide anything — incompatible with running at the same time as it
   // (see groupIntoBatches on the backend, which forces its own batch either
@@ -2120,6 +2132,11 @@ export default function Flows() {
 
               <div className="card-row" style={{ marginTop: 20 }}>
                 <h4 style={{ margin: 0 }}>Steps</h4>
+                {editingFlow.steps.length > 0 && (
+                  <button type="button" className="btn-quiet" onClick={handleToggleAllStepsEnabled}>
+                    {allStepsEnabled ? 'Uncheck All' : 'Check All'}
+                  </button>
+                )}
               </div>
               <div className="stack">
                 {editingFlow.steps.map((step, idx) => (
