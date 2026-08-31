@@ -110,8 +110,8 @@ function matchesFlowRunFilters(row, { envFilter, resourceFilter, statusFilter })
 function HitRow({ row, selectedRowId, onSelect }) {
   return (
     <tr
-      onClick={() => row.endpoint_id && onSelect(row)}
-      style={{ cursor: row.endpoint_id ? 'pointer' : 'default', background: selectedRowId === row.id ? 'var(--accent-soft)' : undefined }}
+      onClick={() => onSelect(row)}
+      style={{ cursor: 'pointer', background: selectedRowId === row.id ? 'var(--accent-soft)' : undefined }}
     >
       <td className="hint" style={{ whiteSpace: 'nowrap' }}>{formatDateTime(row.created_at)}</td>
       <td className="mono">{row.request_method}</td>
@@ -164,7 +164,7 @@ function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, runInfo
   return (
     <div className="card" ref={detailRef}>
       <div className="card-row">
-        <h4 style={{ margin: 0 }}>{selectedRow.request_method} {selectedRow.endpoint_name ?? detail.endpoint.name}</h4>
+        <h4 style={{ margin: 0 }}>{selectedRow.request_method} {selectedRow.endpoint_name ?? detail?.endpoint?.name ?? selectedRow.name}</h4>
         <div className="toolbar">
           <OptionsMenu
             label="Export"
@@ -262,11 +262,11 @@ function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, runInfo
         <div className="stack" style={{ minWidth: 0 }}>
           <div>
             <span className="field-label">Headers</span>
-            <JsonBlock value={selectedRow.request_headers ?? detail.endpoint.headers} />
+            <JsonBlock value={selectedRow.request_headers ?? detail?.endpoint?.headers} />
           </div>
           <div>
             <span className="field-label">Request Body</span>
-            <JsonBlock value={unwrapJsonStrings(selectedRow.request_body ?? detail.endpoint.body_template)} formData />
+            <JsonBlock value={unwrapJsonStrings(selectedRow.request_body ?? detail?.endpoint?.body_template)} formData />
           </div>
         </div>
         <div style={{ minWidth: 0 }}>
@@ -275,15 +275,22 @@ function HitDetailPanel({ detail, selectedRow, setSelectedRow, runSteps, runInfo
         </div>
       </div>
 
-      <h4 style={{ marginTop: 20 }}>Response Time Trend (this endpoint, 7 days)</h4>
-      <ResponsiveContainer width="100%" height={220}>
-        <LineChart data={trend}>
-          <XAxis dataKey="time" hide />
-          <YAxis stroke="#616a80" fontSize={11} tickLine={false} axisLine={false} />
-          <Tooltip contentStyle={{ background: '#1a1e29', border: '1px solid #242a3a', borderRadius: 8, fontSize: 12 }} />
-          <Line type="monotone" dataKey="ms" stroke="#6d6af6" strokeWidth={2} dot={false} />
-        </LineChart>
-      </ResponsiveContainer>
+      {/* Needs a saved Endpoint to trend against — a step run from a pasted
+          curl/raw URL (no endpoint_id) has no history to chart here, so this
+          section is simply omitted rather than showing an empty chart. */}
+      {detail && (
+        <>
+          <h4 style={{ marginTop: 20 }}>Response Time Trend (this endpoint, 7 days)</h4>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={trend}>
+              <XAxis dataKey="time" hide />
+              <YAxis stroke="#616a80" fontSize={11} tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={{ background: '#1a1e29', border: '1px solid #242a3a', borderRadius: 8, fontSize: 12 }} />
+              <Line type="monotone" dataKey="ms" stroke="#6d6af6" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </>
+      )}
     </div>
   );
 }
@@ -602,7 +609,7 @@ export default function Dashboard() {
         </p>
       )}
 
-      {detail && selectedRow && selectedFrom === 'hits' && (
+      {selectedRow && selectedFrom === 'hits' && (
         <HitDetailPanel
           detail={detail} selectedRow={selectedRow} setSelectedRow={setSelectedRow}
           runSteps={runSteps} runInfo={runInfo} trend={trend} closeDetail={closeDetail} detailRef={detailRef}
@@ -640,7 +647,7 @@ export default function Dashboard() {
         </p>
       )}
 
-      {detail && selectedRow && selectedFrom === 'alerts' && (
+      {selectedRow && selectedFrom === 'alerts' && (
         <HitDetailPanel
           detail={detail} selectedRow={selectedRow} setSelectedRow={setSelectedRow}
           runSteps={runSteps} runInfo={runInfo} trend={trend} closeDetail={closeDetail} detailRef={detailRef}
