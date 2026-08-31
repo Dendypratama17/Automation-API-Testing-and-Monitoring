@@ -208,9 +208,29 @@ async function resolveFileUrls(value) {
   return value;
 }
 
+// A field can itself be a JSON-encoded string instead of real nested JSON
+// (some APIs serialize a structured column — an array, an object — as text
+// in the response rather than nesting it) — e.g. a `url` field holding the
+// literal text `["https://...","https://..."]` rather than a real array.
+// Continuing the path past it with a plain `acc[key]` would index into the
+// STRING itself: `.0`/`.1` silently returns individual characters ("[",
+// "\"", ...) instead of the actual array elements. Try parsing a string
+// value before applying the next path segment, at every step, so an
+// Extract Variable / assertion path reaches into it the same way it would
+// if the field were real nested JSON to begin with.
 function getField(obj, path) {
   if (!path) return undefined;
-  return path.split('.').reduce((acc, key) => (acc == null ? undefined : acc[key]), obj);
+  return path.split('.').reduce((acc, key) => {
+    if (acc == null) return undefined;
+    let value = acc;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try { value = JSON.parse(trimmed); } catch { /* not actually JSON — leave as a plain string */ }
+      }
+    }
+    return value[key];
+  }, obj);
 }
 
 // Recursively walks every object/array under `node`, collecting the value of
