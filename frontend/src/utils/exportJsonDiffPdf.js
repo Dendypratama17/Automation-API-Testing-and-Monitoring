@@ -35,8 +35,12 @@ function slugifyForFilename(name) {
  * instance plus a filesystem-safe filename, shared by both the "download"
  * and "share to Telegram" entry points below so the PDF-building logic
  * itself only lives in one place.
+ *
+ * `includeDiff: false` skips the diff summary/list entirely and keeps just
+ * JSON A/B themselves — for when the two payloads are wanted as a plain
+ * reference (e.g. for notes) rather than as a comparison result.
  */
-function buildJsonDiffPdf(saved) {
+function buildJsonDiffPdf(saved, { includeDiff = true } = {}) {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -147,7 +151,7 @@ function buildJsonDiffPdf(saved) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
   doc.setTextColor(180, 184, 196);
-  doc.text('JSON Diff Report', margin, 44);
+  doc.text(includeDiff ? 'JSON Diff Report' : 'Saved JSON (no comparison)', margin, 44);
   y = 54 + 24;
 
   // ---- Summary card ----
@@ -166,34 +170,41 @@ function buildJsonDiffPdf(saved) {
   doc.setFontSize(9);
   doc.setTextColor(...MUTED);
   doc.text(`Saved ${new Date(saved.created_at).toLocaleString()}`, margin + 14, y + 42);
-  doc.text(
-    diffCount === 0 ? 'No differences' : `${diffCount} difference${diffCount === 1 ? '' : 's'}`,
-    pageWidth - margin - 14, y + 42, { align: 'right' }
-  );
+  if (includeDiff) {
+    doc.text(
+      diffCount === 0 ? 'No differences' : `${diffCount} difference${diffCount === 1 ? '' : 's'}`,
+      pageWidth - margin - 14, y + 42, { align: 'right' }
+    );
+  }
   y += summaryHeight + 22;
 
-  if (saved.ignore_paths?.length) {
-    addText(`Ignored fields: ${saved.ignore_paths.join(', ')}`, { size: 8.5, color: MUTED, style: 'italic' });
-    y += 6;
+  if (includeDiff) {
+    if (saved.ignore_paths?.length) {
+      addText(`Ignored fields: ${saved.ignore_paths.join(', ')}`, { size: 8.5, color: MUTED, style: 'italic' });
+      y += 6;
+    }
+
+    // ---- Diffs ----
+    if (diffCount === 0) {
+      addText('No differences found.', { size: 10, color: MUTED, gapBefore: 4 });
+    } else {
+      saved.diffs.forEach((d, idx) => {
+        ensureSpace(24);
+        addText(d.path, { size: 10, style: 'bold', color: INK, gapBefore: idx === 0 ? 0 : 10 });
+        drawValueStrip('-', formatValue(d.old_value), OLD_BG, OLD_TEXT);
+        drawValueStrip('+', formatValue(d.new_value), NEW_BG, NEW_TEXT);
+      });
+    }
   }
 
-  // ---- Diffs ----
-  if (diffCount === 0) {
-    addText('No differences found.', { size: 10, color: MUTED, gapBefore: 4 });
-  } else {
-    saved.diffs.forEach((d, idx) => {
-      ensureSpace(24);
-      addText(d.path, { size: 10, style: 'bold', color: INK, gapBefore: idx === 0 ? 0 : 10 });
-      drawValueStrip('-', formatValue(d.old_value), OLD_BG, OLD_TEXT);
-      drawValueStrip('+', formatValue(d.new_value), NEW_BG, NEW_TEXT);
-    });
-  }
-
-  // ---- Compared JSON (full payloads, for reference) ----
+  // ---- Compared JSON (full payloads, for reference) — its own page after
+  // the diff list when there is one; right under the summary card otherwise.
   if (saved.json_a !== undefined && saved.json_b !== undefined) {
-    doc.addPage();
-    y = margin;
-    addText('Compared JSON', { size: 12, style: 'bold', color: INK });
+    if (includeDiff) {
+      doc.addPage();
+      y = margin;
+    }
+    addText('JSON A / JSON B', { size: 12, style: 'bold', color: INK, gapBefore: includeDiff ? 0 : 4 });
     drawCodeBlock('JSON A', JSON.stringify(saved.json_a, null, 2));
     drawCodeBlock('JSON B', JSON.stringify(saved.json_b, null, 2));
   }
@@ -212,19 +223,20 @@ function buildJsonDiffPdf(saved) {
   }
 
   const nameSlug = saved.name ? slugifyForFilename(saved.name) : '';
-  const filename = nameSlug ? `json-diff-${nameSlug}-${saved.id}.pdf` : `json-diff-${saved.id}.pdf`;
+  const prefix = includeDiff ? 'json-diff' : 'json-pair';
+  const filename = nameSlug ? `${prefix}-${nameSlug}-${saved.id}.pdf` : `${prefix}-${saved.id}.pdf`;
   return { doc, filename };
 }
 
-export function exportJsonDiffPdf(saved) {
-  const { doc, filename } = buildJsonDiffPdf(saved);
+export function exportJsonDiffPdf(saved, opts) {
+  const { doc, filename } = buildJsonDiffPdf(saved, opts);
   doc.save(filename);
 }
 
 // Base64 payload (no data-URI prefix) + filename, for POSTing to a backend
 // endpoint (e.g. "Share to Telegram") instead of triggering a local download.
-export function getJsonDiffPdfBase64(saved) {
-  const { doc, filename } = buildJsonDiffPdf(saved);
+export function getJsonDiffPdfBase64(saved, opts) {
+  const { doc, filename } = buildJsonDiffPdf(saved, opts);
   const dataUri = doc.output('datauristring');
   const base64 = dataUri.slice(dataUri.indexOf(',') + 1);
   return { base64, filename };

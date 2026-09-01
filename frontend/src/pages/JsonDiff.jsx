@@ -301,11 +301,14 @@ export default function JsonDiff() {
     }
   };
 
-  const handleExportSaved = async (id) => {
+  // `includeDiff: false` exports/shares just JSON A and JSON B as saved —
+  // no diff summary — for archiving the two payloads themselves (e.g. for
+  // notes) rather than the comparison result.
+  const handleExportSaved = async (id, includeDiff = true) => {
     setExportingId(id);
     try {
       const full = await getSavedJsonDiff(id);
-      exportJsonDiffPdf(full);
+      exportJsonDiffPdf(full, { includeDiff });
     } catch (err) {
       showToast(err.response?.data?.error || err.message, 'error');
     } finally {
@@ -313,14 +316,16 @@ export default function JsonDiff() {
     }
   };
 
-  const handleShareToTelegram = async (id, name) => {
+  const handleShareToTelegram = async (id, name, includeDiff = true) => {
     setSharingIds((prev) => new Set(prev).add(id));
     try {
       const full = await getSavedJsonDiff(id);
-      const { base64, filename } = getJsonDiffPdfBase64(full);
+      const { base64, filename } = getJsonDiffPdfBase64(full, { includeDiff });
       await sendDocumentToTelegram({
         filename,
-        caption: `JSON Diff: ${name || `Comparison #${id}`}`,
+        caption: includeDiff
+          ? `JSON Diff: ${name || `Comparison #${id}`}`
+          : `Saved JSON: ${name || `Comparison #${id}`}`,
         fileBase64: base64,
       });
       showToast('Sent to Telegram.');
@@ -615,22 +620,28 @@ export default function JsonDiff() {
                   </div>
                 ) : (
                   <div className="toolbar" style={{ marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
-                    <button
-                      className="btn-quiet"
-                      onClick={() => handleExportSaved(s.id)}
-                      disabled={exportingId === s.id}
-                      title="Export PDF"
-                    >
-                      <DownloadIcon />
-                    </button>
-                    <button
-                      className="btn-quiet"
-                      onClick={() => handleShareToTelegram(s.id, s.name)}
-                      disabled={sharingIds.has(s.id)}
-                      title="Share to Telegram"
-                    >
-                      <SendIcon />
-                    </button>
+                    <OptionsMenu
+                      label="Export"
+                      title="Download this comparison as a PDF, or share it to Telegram — either the diff result, or just JSON A/B on their own"
+                      items={[
+                        {
+                          label: 'Diff Comparison',
+                          icon: <DownloadIcon />,
+                          submenu: [
+                            { label: exportingId === s.id ? 'Downloading...' : 'Download PDF', icon: <DownloadIcon />, onClick: () => handleExportSaved(s.id, true) },
+                            { label: sharingIds.has(s.id) ? 'Sharing...' : 'Share to Telegram', icon: <SendIcon />, onClick: () => handleShareToTelegram(s.id, s.name, true) },
+                          ],
+                        },
+                        {
+                          label: 'JSON A / JSON B Only',
+                          icon: <DownloadIcon />,
+                          submenu: [
+                            { label: exportingId === s.id ? 'Downloading...' : 'Download PDF', icon: <DownloadIcon />, onClick: () => handleExportSaved(s.id, false) },
+                            { label: sharingIds.has(s.id) ? 'Sharing...' : 'Share to Telegram', icon: <SendIcon />, onClick: () => handleShareToTelegram(s.id, s.name, false) },
+                          ],
+                        },
+                      ]}
+                    />
                     <OptionsMenu
                       items={[
                         { label: 'Rename', icon: <EditIcon />, onClick: () => handleStartRename(s) },
