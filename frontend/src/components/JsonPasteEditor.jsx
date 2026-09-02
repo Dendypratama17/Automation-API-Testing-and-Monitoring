@@ -107,6 +107,7 @@ export default function JsonPasteEditor({ value, onChange, diffLineSet, missingL
           const indentChars = line.match(/^ */)[0].length;
           const isMissing = missingLineSet?.has(i);
           const isDiff = !isMissing && diffLineSet?.has(i);
+          const isCommented = line.trimStart().startsWith('//');
           return (
             <div
               key={i}
@@ -128,8 +129,12 @@ export default function JsonPasteEditor({ value, onChange, diffLineSet, missingL
             >
               {line.length === 0
                 ? ' '
+                // A commented-out line (see jsonComments.js) is dimmed as one
+                // flat muted color instead of the usual per-token syntax
+                // colors — reads as "disabled", same as a code editor greys
+                // out a comment.
                 : tokenizeJsonLine(line).map((tok, ti) => (
-                  <span key={ti} style={{ color: TOKEN_COLOR[tok.type] }}>{tok.text}</span>
+                  <span key={ti} style={{ color: isCommented ? 'var(--text-dim)' : TOKEN_COLOR[tok.type] }}>{tok.text}</span>
                 ))}
             </div>
           );
