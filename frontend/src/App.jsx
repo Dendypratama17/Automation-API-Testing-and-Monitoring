@@ -63,7 +63,7 @@ export default function App() {
         <aside className="sidebar">
           <div className="brand">
             <span className="brand-mark">
-              <img src="/logo_privy.png" alt="Privy" />
+              <img src="/logo_privy.png" alt="QA Toolkit" />
             </span>
             <div>
               <div>QA Toolkit</div>
