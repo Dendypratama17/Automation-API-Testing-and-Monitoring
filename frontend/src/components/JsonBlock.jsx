@@ -100,9 +100,12 @@ function FormDataView({ rows }) {
 export default function JsonBlock({ value, formData = false }) {
   const showToast = useToast();
   const navigate = useNavigate();
-  const [viewMode, setViewMode] = useState('json');
   const isBinary = isBinaryResponse(value);
   const canShowForm = !isBinary && isTupleArray(value, formData);
+  // A body that's actually form-data reads better as form fields by default
+  // — only falls back to JSON as the initial tab when there's nothing to
+  // show as Form Data at all.
+  const [viewMode, setViewMode] = useState(canShowForm ? 'form' : 'json');
   const text = stringifyForDisplay(value ?? {}, 0, formData);
 
   const handleCopy = () => {
