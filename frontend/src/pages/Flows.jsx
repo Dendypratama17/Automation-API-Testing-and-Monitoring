@@ -368,6 +368,11 @@ function stepToPayload(step, endpoints) {
     headers,
     body_template,
     body_type: step.bodyType,
+    // The raw editor text (// comments and all) — kept alongside the clean
+    // parsed body_template purely so a commented-out line survives a
+    // save/reload as disabled instead of being gone for good (see
+    // jsonComments.js and stepFromApi below).
+    body_text: step.bodyType === 'json' ? step.bodyText : null,
     response_type: step.responseType === 'base64' ? 'base64' : 'auto',
     extract,
     assertions,
@@ -553,7 +558,11 @@ function stepFromApi(s) {
     url_template: s.url_template,
     headersRows: objectToRows(s.headers),
     bodyType: s.body_type || 'json',
-    bodyText: s.body_template ? JSON.stringify(s.body_template, null, 2) : '',
+    // Prefer the raw saved editor text (keeps any // commented-out lines
+    // intact) — only fall back to reconstructing from body_template for a
+    // step saved before body_text existed, or one that's never had a
+    // comment toggled.
+    bodyText: s.body_text != null ? s.body_text : (s.body_template ? JSON.stringify(s.body_template, null, 2) : ''),
     bodyRows: objectToFormRows(s.body_template),
     responseType: s.response_type === 'base64' ? 'base64' : 'auto',
     extractRows: arrayToExtractRows(s.extract),
@@ -967,8 +976,10 @@ export default function Flows() {
       method,
       headersRows: ep ? objectToRows(ep.headers) : steps[idx].headersRows,
       bodyType: ep ? (ep.body_type || 'json') : steps[idx].bodyType,
-      bodyText: ep && ep.body_template && Object.keys(ep.body_template).length
-        ? JSON.stringify(ep.body_template, null, 2)
+      bodyText: ep
+        ? (ep.body_text != null
+          ? ep.body_text
+          : (ep.body_template && Object.keys(ep.body_template).length ? JSON.stringify(ep.body_template, null, 2) : ''))
         : '',
       bodyRows: ep ? objectToFormRows(ep.body_template) : steps[idx].bodyRows,
       assertionsRows,

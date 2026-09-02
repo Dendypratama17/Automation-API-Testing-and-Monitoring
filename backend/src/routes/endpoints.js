@@ -20,7 +20,7 @@ router.get('/', catchAsync(async (req, res) => {
     where = 'WHERE folder_id = $1';
   }
   const result = await pool.query(
-    `SELECT id, folder_id, name, method, path_template, headers, body_template, body_type, tags, sort_order, created_at, updated_at
+    `SELECT id, folder_id, name, method, path_template, headers, body_template, body_type, body_text, tags, sort_order, created_at, updated_at
      FROM endpoints ${where} ORDER BY sort_order ASC, created_at ASC, id ASC`,
     params
   );
@@ -200,11 +200,11 @@ router.post('/import/postman-collection', catchAsync(async (req, res) => {
 
 // UPDATE endpoint (including moving it between folders)
 router.put('/:id', catchAsync(async (req, res) => {
-  const { name, method, path_template, headers, body_template, body_type = 'json', tags, folder_id } = req.body;
+  const { name, method, path_template, headers, body_template, body_type = 'json', body_text, tags, folder_id } = req.body;
   const result = await pool.query(
-    `UPDATE endpoints SET name=$1, method=$2, path_template=$3, headers=$4::jsonb, body_template=$5::jsonb, body_type=$6, tags=$7, folder_id=$8, updated_at=NOW()
-     WHERE id=$9 RETURNING *`,
-    [name, method, path_template, JSON.stringify(headers), JSON.stringify(body_template), body_type, tags, folder_id ?? null, req.params.id]
+    `UPDATE endpoints SET name=$1, method=$2, path_template=$3, headers=$4::jsonb, body_template=$5::jsonb, body_type=$6, body_text=$7, tags=$8, folder_id=$9, updated_at=NOW()
+     WHERE id=$10 RETURNING *`,
+    [name, method, path_template, JSON.stringify(headers), JSON.stringify(body_template), body_type, body_type === 'json' ? (body_text ?? null) : null, tags, folder_id ?? null, req.params.id]
   );
   res.json(result.rows[0]);
 }));
@@ -227,8 +227,8 @@ router.post('/:id/duplicate', catchAsync(async (req, res) => {
   const nextSortOrder = nextSortOrderResult.rows[0].next;
 
   const result = await pool.query(
-    `INSERT INTO endpoints (folder_id, name, method, path_template, headers, body_template, body_type, tags, sort_order)
-     VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9) RETURNING *`,
+    `INSERT INTO endpoints (folder_id, name, method, path_template, headers, body_template, body_type, body_text, tags, sort_order)
+     VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9,$10) RETURNING *`,
     [
       original.folder_id,
       `${original.name} (Copy)`,
@@ -237,6 +237,7 @@ router.post('/:id/duplicate', catchAsync(async (req, res) => {
       JSON.stringify(original.headers),
       JSON.stringify(original.body_template),
       original.body_type,
+      original.body_text,
       original.tags,
       nextSortOrder,
     ]

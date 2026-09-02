@@ -59,7 +59,10 @@ function endpointToForm(ep) {
     folder_id: ep.folder_id,
     headersRows: objectToRows(ep.headers),
     bodyType: ep.body_type || 'json',
-    bodyText: JSON.stringify(ep.body_template || {}, null, 2),
+    // Prefer the raw saved editor text (keeps any // commented-out lines
+    // intact) — only fall back to reconstructing from body_template for an
+    // endpoint saved before body_text existed.
+    bodyText: ep.body_text != null ? ep.body_text : JSON.stringify(ep.body_template || {}, null, 2),
     bodyRows: objectToFormRows(ep.body_template),
     tags: ep.tags || [],
   };
@@ -352,6 +355,10 @@ export default function Endpoints() {
         headers,
         body_template,
         body_type: editing.bodyType,
+        // Raw editor text (// comments and all) alongside the clean parsed
+        // body_template — see jsonComments.js — so a commented-out line
+        // survives a save/reload as disabled instead of being gone for good.
+        body_text: editing.bodyType === 'json' ? editing.bodyText : null,
         tags: editing.tags || [],
       });
       setEditing(null);

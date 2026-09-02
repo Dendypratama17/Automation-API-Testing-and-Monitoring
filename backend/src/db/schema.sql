@@ -51,6 +51,12 @@ CREATE TABLE IF NOT EXISTS endpoints (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Same reasoning as flow_steps.body_text above — the JSON body editor's raw
+-- text (// comments and all), kept alongside the clean parsed body_template
+-- purely so the editor can reopen with a commented-out line still shown as
+-- disabled instead of just gone. Only meaningful for body_type='json'.
+ALTER TABLE endpoints ADD COLUMN IF NOT EXISTS body_text TEXT;
+
 -- Header template applied to every endpoint (both existing ones and future
 -- cURL/Postman imports) — an endpoint's own header always wins on conflict,
 -- so this only fills in keys the endpoint doesn't already define. A key can
@@ -167,6 +173,14 @@ ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS run_condition_status_code INT;
 -- for jsonb) so it can be extracted/previewed — e.g. a step that downloads
 -- the actual signed PDF and needs to verify what came back.
 ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS response_type VARCHAR(20) NOT NULL DEFAULT 'auto';
+-- The JSON body editor's raw text, // comments and all (see
+-- frontend/src/utils/jsonComments.js) — body_template above is always the
+-- CLEAN parsed value (comments stripped) actually sent on a run, but that
+-- means it has nowhere to keep a commented-out line's text once parsed.
+-- Storing the untouched source here lets a step's editor reopen with that
+-- line still shown as disabled instead of the field just being gone.
+-- Only meaningful for body_type='json'; NULL for form-data steps.
+ALTER TABLE flow_steps ADD COLUMN IF NOT EXISTS body_text TEXT;
 
 CREATE TABLE IF NOT EXISTS flow_runs (
   id SERIAL PRIMARY KEY,
