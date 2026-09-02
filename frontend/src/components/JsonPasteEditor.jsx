@@ -1,5 +1,6 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { tokenizeJsonLine } from '../utils/jsonTextHighlight.js';
+import { toggleLineComment, stripJsonComments } from '../utils/jsonComments.js';
 import { WandIcon, TrashIcon } from './icons.jsx';
 import { useToast } from './ToastProvider.jsx';
 
@@ -22,8 +23,21 @@ const TOKEN_COLOR = {
 // directly instead of re-serializing a parsed value.
 export default function JsonPasteEditor({ value, onChange, diffLineSet, missingLineSet, placeholder, height = 420, readOnly = false }) {
   const preRef = useRef(null);
+  const textareaRef = useRef(null);
+  // Set right before an onChange that should also move the caret (comment
+  // toggling) — applied in the effect below once React has re-rendered the
+  // textarea with the new value, since setting selection on the OLD value
+  // (before the DOM catches up) would just be overwritten.
+  const pendingSelection = useRef(null);
   const showToast = useToast();
   const lines = value.split('\n');
+
+  useEffect(() => {
+    if (!pendingSelection.current || !textareaRef.current) return;
+    const { start, end } = pendingSelection.current;
+    pendingSelection.current = null;
+    textareaRef.current.setSelectionRange(start, end);
+  }, [value]);
 
   const handleScroll = (e) => {
     if (preRef.current) {
@@ -32,10 +46,28 @@ export default function JsonPasteEditor({ value, onChange, diffLineSet, missingL
     }
   };
 
+  // Cmd+/ (Mac) or Ctrl+/ (Windows/Linux) — toggles a "// " line comment on
+  // every line the current selection touches, same as a real code editor.
+  // JSON itself has no comment syntax; this is purely an editing
+  // convenience (see jsonComments.js) for disabling a field while testing
+  // without deleting it — stripped back out before the text is parsed.
+  const handleKeyDown = (e) => {
+    if (readOnly) return;
+    if (!(e.metaKey || e.ctrlKey) || e.key !== '/') return;
+    e.preventDefault();
+    const el = e.target;
+    const result = toggleLineComment(value, el.selectionStart, el.selectionEnd);
+    pendingSelection.current = { start: result.selectionStart, end: result.selectionEnd };
+    onChange(result.text);
+  };
+
   const handleBeautify = () => {
     if (!value.trim()) return;
     try {
-      onChange(JSON.stringify(JSON.parse(value), null, 2));
+      // Any // comment lines can't survive a real reformat (JSON has no
+      // comment syntax to put them back into) — beautifying intentionally
+      // drops them, same as it would any other non-JSON content.
+      onChange(JSON.stringify(JSON.parse(stripJsonComments(value)), null, 2));
     } catch {
       showToast('Not valid JSON — fix the syntax first.', 'error');
     }
@@ -104,9 +136,11 @@ export default function JsonPasteEditor({ value, onChange, diffLineSet, missingL
         })}
       </pre>
       <textarea
+        ref={textareaRef}
         className="json-paste-editor-input mono"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
         onScroll={handleScroll}
         placeholder={placeholder}
         spellCheck={false}

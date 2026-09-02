@@ -28,6 +28,7 @@ import { groupByEnv } from '../utils/envBadge.js';
 import { useConfirm } from '../components/ConfirmProvider.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
 import { loadSelectedFolder, saveSelectedFolder, hasStoredFolder } from '../utils/persistedFolder.js';
+import { stripJsonComments } from '../utils/jsonComments.js';
 
 const STRESS_MAX_TOTAL_REQUESTS = 500;
 const STRESS_MAX_CONCURRENCY = 50;
@@ -341,7 +342,7 @@ export default function Endpoints() {
       if (editing.bodyType === 'form-data') {
         body_template = formRowsToBody(editing.bodyRows);
       } else {
-        body_template = editing.bodyText.trim() ? JSON.parse(editing.bodyText) : {};
+        body_template = editing.bodyText.trim() ? JSON.parse(stripJsonComments(editing.bodyText)) : {};
       }
       await updateEndpoint(editing.id, {
         name: editing.name,

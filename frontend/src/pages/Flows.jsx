@@ -22,6 +22,7 @@ import AuthorizationField from '../components/AuthorizationField.jsx';
 import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
 import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
+import { stripJsonComments } from '../utils/jsonComments.js';
 import { exportRunResultToPdf, getRunResultPdfBase64, exportBatchRunResultToPdf, getBatchRunResultPdfBase64 } from '../utils/exportRunResultPdf.js';
 import { exportRepeatCombinedToPdf, getRepeatCombinedPdfBase64 } from '../utils/exportRepeatSummaryPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
@@ -351,7 +352,7 @@ function stepToPayload(step, endpoints) {
     if (step.bodyType === 'form-data') {
       body_template = formRowsToBody(step.bodyRows);
     } else {
-      try { body_template = step.bodyText.trim() ? JSON.parse(step.bodyText) : null; }
+      try { body_template = step.bodyText.trim() ? JSON.parse(stripJsonComments(step.bodyText)) : null; }
       catch { throw new Error(`Body in step "${step.name}" is not valid JSON`); }
     }
   }
@@ -913,7 +914,7 @@ export default function Flows() {
       steps[idx] = { ...step, bodyType: type, bodyText: Object.keys(obj).length ? JSON.stringify(obj, null, 2) : '' };
     } else {
       let parsed;
-      try { parsed = step.bodyText.trim() ? JSON.parse(step.bodyText) : {}; } catch { parsed = undefined; }
+      try { parsed = step.bodyText.trim() ? JSON.parse(stripJsonComments(step.bodyText)) : {}; } catch { parsed = undefined; }
       if (parsed === undefined) {
         steps[idx] = { ...step, bodyType: type };
       } else {
