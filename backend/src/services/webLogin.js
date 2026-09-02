@@ -53,7 +53,23 @@ async function fetchWebLoginToken(cred, signal) {
     await page.goto(cred.login_url, { waitUntil: 'networkidle2', timeout: NAV_TIMEOUT_MS });
 
     await page.waitForSelector('input', { timeout: 15000 });
+    // The PrivyID input that waitForSelector just found is briefly a
+    // placeholder — the page re-mounts it (a fresh element, no name/id yet)
+    // a moment after it first appears, as the SPA finishes settling in.
+    // Typing immediately (as Puppeteer does, unlike a human who never types
+    // the instant a page loads) lands the first few keystrokes on that
+    // element right before it gets swapped out, silently dropping them —
+    // e.g. "DPT7573" arrives at the server as just "573". A short settle
+    // delay lets that swap happen first; verifying the field's value
+    // afterward (and retyping once if it's still wrong) catches it even if
+    // the swap is slower than this delay on a given run.
+    await sleep(800);
     await page.type('input', cred.username, { delay: 20 });
+    const typedValue = await page.evaluate(() => document.querySelector('input')?.value);
+    if (typedValue !== cred.username) {
+      await page.evaluate(() => { const el = document.querySelector('input'); if (el) el.value = ''; });
+      await page.type('input', cred.username, { delay: 20 });
+    }
     if (!(await findButtonByText(page, 'continue'))) {
       throw new Error('Could not find the "Continue" button on the login page — its layout may have changed.');
     }
