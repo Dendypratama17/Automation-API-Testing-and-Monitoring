@@ -23,6 +23,7 @@ import { describeAssertionParts } from '../utils/assertionDescriptions.js';
 import AssertionStatusIcon from '../components/AssertionStatusIcon.jsx';
 import { flattenFolders, folderOptionLabel } from '../utils/folderTree.js';
 import { stripJsonComments } from '../utils/jsonComments.js';
+import { stepToCurl } from '../utils/stepToCurl.js';
 import { exportRunResultToPdf, getRunResultPdfBase64, exportBatchRunResultToPdf, getBatchRunResultPdfBase64 } from '../utils/exportRunResultPdf.js';
 import { exportRepeatCombinedToPdf, getRepeatCombinedPdfBase64 } from '../utils/exportRepeatSummaryPdf.js';
 import { unwrapJsonStrings } from '../utils/unwrapJsonStrings.js';
@@ -840,6 +841,14 @@ export default function Flows() {
     setEditingFlow({ ...editingFlow, steps });
     setExpandedStep(idx + 1);
   };
+
+  const handleCopyStepCurl = (idx) => {
+    const curl = stepToCurl(editingFlow.steps[idx], authCredentials);
+    navigator.clipboard.writeText(curl)
+      .then(() => showToast('curl command copied to clipboard.'))
+      .catch(() => showToast('Failed to copy.', 'error'));
+  };
+
   // Steps have no server-side sort_order — order is implicit array index,
   // persisted as step_order the next time the flow is saved (replaceSteps()
   // in routes/flows.js deletes+reinserts every step keyed by its position in
@@ -2197,6 +2206,7 @@ export default function Flows() {
                           <OptionsMenu
                             items={[
                               { label: 'Duplicate', icon: <CopyIcon />, onClick: () => handleDuplicateStep(idx) },
+                              { label: 'Copy as cURL', icon: <CopyIcon />, onClick: () => handleCopyStepCurl(idx) },
                               { label: 'Delete', icon: <TrashIcon />, onClick: () => handleRemoveStep(idx), danger: true },
                             ]}
                           />
@@ -2232,6 +2242,7 @@ export default function Flows() {
                       <OptionsMenu
                         items={[
                           { label: 'Duplicate', icon: <CopyIcon />, onClick: () => handleDuplicateStep(idx) },
+                          { label: 'Copy as cURL', icon: <CopyIcon />, onClick: () => handleCopyStepCurl(idx) },
                           { label: 'Delete', icon: <TrashIcon />, onClick: () => handleRemoveStep(idx), danger: true },
                         ]}
                       />
