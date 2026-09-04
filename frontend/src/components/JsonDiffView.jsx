@@ -77,6 +77,13 @@ export default function JsonDiffView({ diffs }) {
   const tree = buildDiffTree(diffs);
   return (
     <div className="mono" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+      {/* Which side "−" and "+" belong to isn't obvious from the rows alone
+          once there's more than one diff — spelled out once here instead of
+          repeating "JSON A" / "JSON B" on every single row below. */}
+      <div className="hint" style={{ display: 'flex', gap: 16, fontSize: 11.5, marginBottom: 10 }}>
+        <span style={{ color: 'var(--fail)' }}>− JSON A</span>
+        <span style={{ color: 'var(--pass)' }}>+ JSON B</span>
+      </div>
       {Object.entries(tree).map(([k, v]) => (
         <DiffNode key={k} nodeKey={k} value={v} depth={0} />
       ))}
