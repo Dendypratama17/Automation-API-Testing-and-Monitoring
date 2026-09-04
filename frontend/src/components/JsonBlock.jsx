@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { CopyIcon, JsonDiffIcon } from './icons.jsx';
+import { CopyIcon, JsonDiffIcon, EyeIcon, XIcon } from './icons.jsx';
 import { useToast } from './ToastProvider.jsx';
 import OptionsMenu from './OptionsMenu.jsx';
 import { writeJsonDiffDraft } from '../utils/jsonDiffDraft.js';
@@ -20,9 +21,9 @@ const TOKEN_COLOR = {
   plain: 'var(--text)',
 };
 
-function ColoredJsonText({ text }) {
+function ColoredJsonText({ text, style }) {
   return (
-    <pre className="json-block">
+    <pre className="json-block" style={style}>
       {text.split('\n').map((line, i) => (
         <div key={i}>
           {line.length === 0
@@ -136,6 +137,7 @@ export default function JsonBlock({ value, formData = false }) {
   // — only falls back to JSON as the initial tab when there's nothing to
   // show as Form Data at all.
   const [viewMode, setViewMode] = useState(canShowForm ? 'form' : 'json');
+  const [previewOpen, setPreviewOpen] = useState(false);
   const text = stringifyForDisplay(value ?? {}, 0, formData);
 
   const handleCopy = () => {
@@ -177,21 +179,20 @@ export default function JsonBlock({ value, formData = false }) {
       </div>
       <div style={{ position: 'relative' }}>
         {!isBinary && (
-          <div className="json-block-copy" style={{ display: 'flex', gap: 2 }}>
-            <button
-              className="btn-icon"
-              onClick={handleCopy}
-              title="Copy to clipboard"
-              aria-label="Copy to clipboard"
-            >
-              <CopyIcon />
-            </button>
+          <div className="json-block-copy">
             <OptionsMenu
-              icon={<JsonDiffIcon />}
-              title="Send to JSON Diff"
+              title="JSON actions"
               items={[
-                { label: 'Send as JSON A', onClick: () => handleSendToDiff('A') },
-                { label: 'Send as JSON B', onClick: () => handleSendToDiff('B') },
+                { label: 'Copy JSON', icon: <CopyIcon />, onClick: handleCopy },
+                { label: 'Preview JSON', icon: <EyeIcon />, onClick: () => setPreviewOpen(true) },
+                {
+                  label: 'Send as JSON',
+                  icon: <JsonDiffIcon />,
+                  submenu: [
+                    { label: 'Send as JSON A', onClick: () => handleSendToDiff('A') },
+                    { label: 'Send as JSON B', onClick: () => handleSendToDiff('B') },
+                  ],
+                },
               ]}
             />
           </div>
@@ -200,6 +201,31 @@ export default function JsonBlock({ value, formData = false }) {
           ? <BinaryResponseView value={value} />
           : (canShowForm && viewMode === 'form' ? <FormDataView rows={value} /> : <ColoredJsonText text={text} />)}
       </div>
+      {previewOpen && createPortal(
+        <div className="modal-overlay" onClick={() => setPreviewOpen(false)}>
+          <div
+            className="modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 900, width: '90vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
+          >
+            <div className="card-row" style={{ marginBottom: 12, flexShrink: 0 }}>
+              <h4 style={{ margin: 0 }}>Preview JSON</h4>
+              <div className="toolbar">
+                <button className="btn-quiet" onClick={handleCopy}>
+                  <CopyIcon /> Copy
+                </button>
+                <button className="btn-icon" onClick={() => setPreviewOpen(false)} title="Close" aria-label="Close">
+                  <XIcon />
+                </button>
+              </div>
+            </div>
+            <div style={{ overflow: 'auto', flex: 1 }}>
+              <ColoredJsonText text={text} style={{ maxHeight: 'none' }} />
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
