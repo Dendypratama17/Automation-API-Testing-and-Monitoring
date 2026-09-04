@@ -46,10 +46,13 @@ function DiffNode({ nodeKey, value, depth }) {
       <div style={{ ...indent, fontSize: 12.5, padding: '6px 0' }}>
         <div className="mono" style={{ color: 'var(--text-dim)', marginBottom: 4 }}>{nodeKey}</div>
         <div className="stack" style={{ gap: 3 }}>
-          <div className="mono" style={{ ...diffLineStyle, color: 'var(--fail)', background: 'var(--fail-bg)' }}>
+          {/* Amber for A, indigo for B — neither is red/green, since being on
+              one side of a comparison isn't a pass/fail outcome (those colors
+              are reserved for actual run status elsewhere in the app). */}
+          <div className="mono" style={{ ...diffLineStyle, color: 'var(--drift)', background: 'var(--drift-bg)' }}>
             − {formatValue(value.old_value)}
           </div>
-          <div className="mono" style={{ ...diffLineStyle, color: 'var(--pass)', background: 'var(--pass-bg)' }}>
+          <div className="mono" style={{ ...diffLineStyle, color: '#c7c5ff', background: 'var(--accent-soft)' }}>
             + {formatValue(value.new_value)}
           </div>
         </div>
@@ -68,7 +71,7 @@ function DiffNode({ nodeKey, value, depth }) {
 
 // Renders a flat list of {path, old_value, new_value} diffs (see
 // backend/src/services/jsonDiff.js) as a nested "only what changed" tree —
-// old value struck through in red, new value in green — instead of a full
+// JSON A's value in amber, JSON B's in indigo — instead of a full
 // side-by-side of two entire JSON payloads that are mostly identical.
 export default function JsonDiffView({ diffs }) {
   if (diffs.length === 0) {
@@ -81,8 +84,8 @@ export default function JsonDiffView({ diffs }) {
           once there's more than one diff — spelled out once here instead of
           repeating "JSON A" / "JSON B" on every single row below. */}
       <div className="hint" style={{ display: 'flex', gap: 16, fontSize: 11.5, marginBottom: 10 }}>
-        <span style={{ color: 'var(--fail)' }}>− JSON A</span>
-        <span style={{ color: 'var(--pass)' }}>+ JSON B</span>
+        <span style={{ color: 'var(--drift)' }}>− JSON A</span>
+        <span style={{ color: '#c7c5ff' }}>+ JSON B</span>
       </div>
       {Object.entries(tree).map(([k, v]) => (
         <DiffNode key={k} nodeKey={k} value={v} depth={0} />
