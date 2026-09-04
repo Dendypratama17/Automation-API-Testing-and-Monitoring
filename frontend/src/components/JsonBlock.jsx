@@ -5,6 +5,36 @@ import { useToast } from './ToastProvider.jsx';
 import OptionsMenu from './OptionsMenu.jsx';
 import { writeJsonDiffDraft } from '../utils/jsonDiffDraft.js';
 import { isTupleArray, stringifyBodyForDisplay as stringifyForDisplay } from '../utils/tupleBodyDisplay.js';
+import { tokenizeJsonLine } from '../utils/jsonTextHighlight.js';
+
+// Same per-token palette as JsonPasteEditor's live editor, applied here to
+// this read-only view too — Request/Response Body in a run result used to
+// be one flat color, unlike every other JSON view in the app.
+const TOKEN_COLOR = {
+  key: 'var(--text)',
+  string: 'var(--drift)',
+  number: 'var(--pass)',
+  boolean: 'var(--pass)',
+  null: 'var(--pass)',
+  punct: 'var(--text-dim)',
+  plain: 'var(--text)',
+};
+
+function ColoredJsonText({ text }) {
+  return (
+    <pre className="json-block">
+      {text.split('\n').map((line, i) => (
+        <div key={i}>
+          {line.length === 0
+            ? ' '
+            : tokenizeJsonLine(line).map((tok, ti) => (
+              <span key={ti} style={{ color: TOKEN_COLOR[tok.type] }}>{tok.text}</span>
+            ))}
+        </div>
+      ))}
+    </pre>
+  );
+}
 
 // A step's response that isn't JSON/text (a downloaded PDF, ZIP, ...) is
 // stored as this marker object — see flowExecutor.js's
@@ -168,7 +198,7 @@ export default function JsonBlock({ value, formData = false }) {
         )}
         {isBinary
           ? <BinaryResponseView value={value} />
-          : (canShowForm && viewMode === 'form' ? <FormDataView rows={value} /> : <pre className="json-block">{text}</pre>)}
+          : (canShowForm && viewMode === 'form' ? <FormDataView rows={value} /> : <ColoredJsonText text={text} />)}
       </div>
     </div>
   );
